@@ -1,0 +1,21 @@
+{
+    
+    "urls": [
+        {
+            "store": "zara",
+            "url": "https://www.zara.com/tr/tr/trf-high-rise-wide-leg-jean-p05575029.html?v1=470151992"
+        },
+        {
+            "store": "zara",
+            "url": "https://www.zara.com/tr/tr/asimetrik-cift-katmanli-t-shirt-p05644898.html?v1=481540917"
+        },
+        {
+            "store": "zara",
+            "url": "https://www.zara.com/tr/tr/asimetrik-yaka-top-p03431631.html?v1=470171968"
+        }
+    ],
+    
+    "sizes_to_check": [ "XS", "S", "36", "34" ],
+    "sleep_min_seconds": 3,
+    "sleep_max_seconds": 7
+}
