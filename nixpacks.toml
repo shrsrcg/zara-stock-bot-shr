@@ -1,0 +1,13 @@
+[phases.setup]
+nixPkgs = [
+  "chromium",
+  "chromedriver",
+  "fontconfig",
+  "freetype",
+  "libnss",
+  "nss",
+  "alsa-lib"
+]
+
+[start]
+cmd = "python main.py"

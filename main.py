@@ -84,22 +84,30 @@ def send_telegram_message(message: str):
 USE_SYSTEM_CHROME = os.getenv("USE_SYSTEM_CHROME", "0") == "1"
 
 def build_driver():
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.chrome.service import Service
+    import os
+
     chrome_options = Options()
     chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument(
-        "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    )
+    chrome_options.add_argument("--disable-software-rasterizer")
+    chrome_options.add_argument("--remote-debugging-port=9222")
 
     if USE_SYSTEM_CHROME:
-        CHROME_BIN         = os.getenv("CHROME_BIN", "/usr/bin/chromium")
-        CHROMEDRIVER_PATH  = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+        CHROME_BIN = os.getenv("CHROME_BIN", "/usr/bin/chromium")
+        CHROMEDRIVER_PATH = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
         chrome_options.binary_location = CHROME_BIN
+        print("[DEBUG] Using SYSTEM chrome")
+        print("[DEBUG] CHROME_BIN:", CHROME_BIN)
+        print("[DEBUG] CHROMEDRIVER_PATH:", CHROMEDRIVER_PATH)
         service = Service(CHROMEDRIVER_PATH)
     else:
+        print("[DEBUG] Using WEBDRIVER_MANAGER")
+        from webdriver_manager.chrome import ChromeDriverManager
         service = Service(ChromeDriverManager().install())
 
     print("[DEBUG] Starting ChromeDriver init…")
