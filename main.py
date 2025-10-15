@@ -39,7 +39,7 @@ if 'pygame' not in sys.modules:
 try:
     from scraperHelpers import check_stock_zara, check_stock_bershka
 except ModuleNotFoundError:
-    from scraperhelpers import check_stock_zara, check_stock_bershka
+    from scraperHelpers import check_stock_zara, check_stock_bershka
 
 
 # -----------------------------
@@ -134,7 +134,6 @@ def diag():
 # 5) CHROME/CHROMEDRIVER KURULUMU (HEADLESS)
 # -----------------------------
 def build_driver():
-    def build_driver():
     """
     Selenium Manager kullan: sistemde chrome/driver olmasa da kendi indirir.
     """
