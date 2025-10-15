@@ -12,7 +12,6 @@ from dotenv import load_dotenv
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 
 # ↓↓↓ EKLENDI: PATH üstünden program bulmak ve teşhis (diagnostic) logları için yardımcılar
@@ -136,58 +135,46 @@ def diag():
 # -----------------------------
 def build_driver():
     """
-    Sahra: Sistem Chrome/Driver varsa onu kullanır; yoksa webdriver_manager ile indirir.
-    Railway'de:
-      - NIXPACKS_PKGS = "chromium chromium-driver fonts-liberation"
-      - CHROME_BIN = "/usr/bin/chromium"
-      - USE_SYSTEM_CHROME = "1"
-    ayarlıysa sistemdekileri bulur.
+    Sahra:
+    - Artık sistemde Chromium/Chromedriver olmasına gerek YOK.
+    - Selenium Manager driver'ı (ve gerekirse Chrome for Testing'i) kendisi indirir.
+    - Bu yüzden service/path vermiyoruz; sadece options ile çağırıyoruz.
     """
     chrome_options = Options()
 
-    # Headless + konteyner güvenli bayraklar (bunlar şart)
-    chrome_options.add_argument("--headless=new")                # yeni headless mod (stabil)
+    # Headless + konteyner güvenli bayraklar
+    chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--no-sandbox")                  # container'da şart
-    chrome_options.add_argument("--disable-dev-shm-usage")       # /dev/shm küçük, çakılmasın
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-software-rasterizer")
-    chrome_options.add_argument("--remote-debugging-port=9222")  # headless kararlılığı artırır
+    chrome_options.add_argument("--remote-debugging-port=9222")
     chrome_options.add_argument("--lang=tr-TR")
     chrome_options.add_argument(
         "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     )
 
-    if USE_SYSTEM_CHROME:
-        # ENV'lerden oku; boş ise PATH'te ara (literal stringe düşmeyelim)
-        env_chrome = os.getenv("CHROME_BIN", "")
-        env_driver = os.getenv("CHROMEDRIVER_PATH", "")
+    # 🔴 ÖNEMLİ: Burada Service/driver path belirlemiyoruz.
+    #           Yani webdriver_manager VE CHROMEDRIVER_PATH kullanmıyoruz.
+    #           Selenium 4.17+ kendi "selenium-manager" aracıyla indirip çalıştırır.
+    print("[DEBUG] Using SELENIUM MANAGER (auto driver/browser)")
 
-        CHROME_BIN = env_chrome or find_on_path("chromium") or find_on_path("google-chrome") or find_on_path("chrome")
-        CHROMEDRIVER_PATH = env_driver or find_on_path("chromedriver")
-
-        print("[DEBUG] Using SYSTEM chrome")
-        print("[DEBUG] CHROME_BIN:", CHROME_BIN)
-        print("[DEBUG] CHROMEDRIVER_PATH:", CHROMEDRIVER_PATH)
-
-        # Eğer driver bulunamadıysa ya da dosya değilse güvenle webdriver_manager'a düş
-        if not CHROME_BIN or not CHROMEDRIVER_PATH or not exists_file(CHROMEDRIVER_PATH):
-            print("[WARN] System chromedriver bulunamadı -> webdriver_manager fallback")
-            # Not: binary_location set etmeden de çalışır; ama varsa set etmek iyi olur
-            if CHROME_BIN:
-                chrome_options.binary_location = CHROME_BIN  # sistem chromium'u belirt
-            service = Service(ChromeDriverManager().install())
-        else:
-            chrome_options.binary_location = CHROME_BIN
-            service = Service(CHROMEDRIVER_PATH)
+    # Eğer istersen (opsiyonel) CHROME_BIN doluysa ve DİSKTE gerçekten varsa
+    # binary_location'ı set edebiliriz; ama şart değil.
+    env_chrome = os.getenv("CHROME_BIN", "")
+    if env_chrome and os.path.isfile(env_chrome) and os.access(env_chrome, os.X_OK):
+        chrome_options.binary_location = env_chrome
+        print("[DEBUG] binary_location set:", env_chrome)
     else:
-        print("[DEBUG] Using WEBDRIVER_MANAGER")
-        service = Service(ChromeDriverManager().install())
+        # Sahra: çevrede /usr/bin/chromium gibi yanlış bir yol varsa ve dosya yoksa set ETMİYORUZ.
+        if env_chrome:
+            print("[WARN] CHROME_BIN env var ama dosya yok/çalıştırılamıyor -> yok sayılacak")
 
-    print("[DEBUG] Starting ChromeDriver init…")
-    driver = webdriver.Chrome(service=service, options=chrome_options)
-    print("[DEBUG] ChromeDriver READY")
+    # Tek satır: Service vermeden çağır → Selenium Manager her şeyi halleder.
+    driver = webdriver.Chrome(options=chrome_options)
+    print("[DEBUG] ChromeDriver READY (Selenium Manager)")
     return driver
 
 
