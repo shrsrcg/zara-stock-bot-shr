@@ -134,15 +134,11 @@ def diag():
 # 5) CHROME/CHROMEDRIVER KURULUMU (HEADLESS)
 # -----------------------------
 def build_driver():
+    def build_driver():
     """
-    Sahra:
-    - Artık sistemde Chromium/Chromedriver olmasına gerek YOK.
-    - Selenium Manager driver'ı (ve gerekirse Chrome for Testing'i) kendisi indirir.
-    - Bu yüzden service/path vermiyoruz; sadece options ile çağırıyoruz.
+    Selenium Manager kullan: sistemde chrome/driver olmasa da kendi indirir.
     """
     chrome_options = Options()
-
-    # Headless + konteyner güvenli bayraklar
     chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("--disable-gpu")
@@ -156,27 +152,18 @@ def build_driver():
         "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     )
 
-    # 🔴 ÖNEMLİ: Burada Service/driver path belirlemiyoruz.
-    #           Yani webdriver_manager VE CHROMEDRIVER_PATH kullanmıyoruz.
-    #           Selenium 4.17+ kendi "selenium-manager" aracıyla indirip çalıştırır.
-    print("[DEBUG] Using SELENIUM MANAGER (auto driver/browser)")
-
-    # Eğer istersen (opsiyonel) CHROME_BIN doluysa ve DİSKTE gerçekten varsa
-    # binary_location'ı set edebiliriz; ama şart değil.
+    # İsteğe bağlı: CHROME_BIN gerçekten geçerliyse kullan; yoksa set etme
     env_chrome = os.getenv("CHROME_BIN", "")
     if env_chrome and os.path.isfile(env_chrome) and os.access(env_chrome, os.X_OK):
         chrome_options.binary_location = env_chrome
         print("[DEBUG] binary_location set:", env_chrome)
-    else:
-        # Sahra: çevrede /usr/bin/chromium gibi yanlış bir yol varsa ve dosya yoksa set ETMİYORUZ.
-        if env_chrome:
-            print("[WARN] CHROME_BIN env var ama dosya yok/çalıştırılamıyor -> yok sayılacak")
+    elif env_chrome:
+        print("[WARN] CHROME_BIN var ama dosya yok/çalıştırılamıyor → yok sayılıyor")
 
-    # Tek satır: Service vermeden çağır → Selenium Manager her şeyi halleder.
-    driver = webdriver.Chrome(options=chrome_options)
+    print("[DEBUG] Using SELENIUM MANAGER")
+    driver = webdriver.Chrome(options=chrome_options)  # Service vermiyoruz
     print("[DEBUG] ChromeDriver READY (Selenium Manager)")
     return driver
-
 
 # -----------------------------
 # 6) DURUM TAKİBİ ve NORMALİZASYON
