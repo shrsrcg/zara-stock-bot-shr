@@ -1,13 +1,12 @@
 # ============================
-# main.py (REVIZE EDILMIS)
+# main.py  —  Railway/Headless
+# Sahra için: Kodun içine bol açıklama eklenmiştir.
 # ============================
-
 import json
 import time
 import random
 import os
 import requests
-# import pygame  # ← HEADLESS ortamda gerekli değil, çıkarıldı
 
 from dotenv import load_dotenv
 from selenium import webdriver
@@ -16,44 +15,68 @@ from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 
-# ↓↓↓ EKLENDI: PATH üstünden program bulmak ve küçük yardımcılar için
+# ↓↓↓ EKLENDI: PATH üstünden program bulmak ve teşhis (diagnostic) logları için yardımcılar
 import shutil
 import platform
 
-from scraperHelpers import check_stock_zara, check_stock_bershka
+# --- [HOTFIX 1] pygame STUB ---
+# NEDEN: Başka bir dosyada (örn: scraperHelpers.py) yanlışlıkla 'import pygame' kalmış olabilir.
+# Headless ortamda pygame yok; bu stub, 'pygame' adında boş bir modül enjekte eder ki çökmesin.
+import sys, types  # ← sadece bu stub için kullanılıyor
+if 'pygame' not in sys.modules:
+    pygame_stub = types.ModuleType('pygame')
+    pygame_stub.mixer = types.SimpleNamespace(
+        init=lambda *a, **k: None
+    )
+    pygame_stub.music = types.SimpleNamespace(
+        load=lambda *a, **k: None,
+        play=lambda *a, **k: None
+    )
+    sys.modules['pygame'] = pygame_stub
+# --- HOTFIX SONU ---
+
+# Sahra: Bu helper'ları iki farklı dosya adı senaryosuna karşı güvenli import ediyoruz.
+# Önce doğru olanı (scraperHelpers.py, büyük H) dene; olmazsa küçük h'li dosyaya düş.
+try:
+    from scraperHelpers import check_stock_zara, check_stock_bershka
+except ModuleNotFoundError:
+    from scraperhelpers import check_stock_zara, check_stock_bershka
+
 
 # -----------------------------
-# Config yükle
+# 1) CONFIG YÜKLEME
 # -----------------------------
+# Sahra: Burada config.json dosyasını okuyoruz. Yeni yapıda "her URL için ayrı beden listesi" var.
+# Aşağıda örnek config.json şablonu verdim. Ona göre düzenlersen, kod link-bazlı beden arar.
 with open("config.json", "r") as config_file:
     config = json.load(config_file)
 
+# Eski global "sizes_to_check" kaldırıldı. Artık her URL için "sizes" alanı var.
 urls_to_check       = config["urls"]
-sizes_to_check      = config["sizes_to_check"]
-sleep_min_seconds   = config["sleep_min_seconds"]
-sleep_max_seconds   = config["sleep_max_seconds"]
+sleep_min_seconds   = config.get("sleep_min_seconds", 30)  # Sahra: varsayılanları güvenceye aldım
+sleep_max_seconds   = config.get("sleep_max_seconds", 90)
+
 
 # -----------------------------
-# Env / Telegram
+# 2) ENV / TELEGRAM
 # -----------------------------
-load_dotenv()
+load_dotenv()  # Sahra: .env varsa oradan da BOT_API/CHAT_ID alır (Railway Variables önceliklidir)
+
 BOT_API  = os.getenv("BOT_API")
 CHAT_ID  = os.getenv("CHAT_ID")
 
 TELEGRAM_ENABLED = bool(BOT_API and CHAT_ID)
 print("TELEGRAM_ENABLED:", TELEGRAM_ENABLED)
 
-# -----------------------------
-# (KALDIRILDI) Ses/Pygame bölümü
-# Neden? Headless Railway ortamında ses çalma gereksiz ve pygame çoğu zaman çakışır.
-# Eğer ileride masaüstünde lokal denemede sesi geri istersen, bu bloğu geri ekleyebiliriz.
-# -----------------------------
 
 # -----------------------------
-# Telegram helper
+# 3) TELEGRAM GÖNDERİM YARDIMCISI
 # -----------------------------
 def send_telegram_message(message: str):
-    """Telegram'a basit metin mesajı gönderen yardımcı fonksiyon."""
+    """
+    Sahra: Telegram'a metin mesajı göndermek için tek nokta.
+    BOT_API/CHAT_ID yoksa sessizce atlar; hata vermez.
+    """
     if not TELEGRAM_ENABLED:
         print("⚠️ Telegram message skipped (missing BOT_API or CHAT_ID).")
         return
@@ -65,20 +88,21 @@ def send_telegram_message(message: str):
     except Exception as e:
         print(f"[TG] send error: {e}")
 
+
 # -----------------------------
-# Kullanışlı: env bool okuma
+# 4) ORTAM/DRIVER YARDIMCILARI
 # -----------------------------
 def getenv_bool(name: str, default: bool=False) -> bool:
-    """Ortam değişkenlerini 1/true/yes/on → True olarak okumak için yardımcı."""
+    """
+    Sahra: Railway'de boolean env değerlerini çeşitli şekillerde True kabul etmek için.
+    Örn: 1, true, yes, on hepsi True olur.
+    """
     val = os.getenv(name)
     if val is None:
         return default
     return str(val).strip().lower() in ("1", "true", "yes", "on")
 
-# -----------------------------
-# Chrome / Driver ayarları
-# -----------------------------
-USE_SYSTEM_CHROME = getenv_bool("USE_SYSTEM_CHROME", False)
+USE_SYSTEM_CHROME = getenv_bool("USE_SYSTEM_CHROME", False)  # Railway Variables'ta 1 yapmıştık.
 
 def find_on_path(name: str):
     """PATH üzerinde verilen programın tam yolunu döndürür. Örn: chromedriver."""
@@ -89,7 +113,10 @@ def exists_file(p: str) -> bool:
     return bool(p) and os.path.isfile(p) and os.access(p, os.X_OK)
 
 def diag():
-    """Teşhis amaçlı: ortamı hızlıca raporla (loglarda görürsün)."""
+    """
+    Sahra: Bu fonksiyon sadece teşhis amaçlı. Deploy loglarında ortamı hızlıca görebilmemiz için.
+    İlk turda bir kez çalıştırıyoruz.
+    """
     print("=== DIAG START ===")
     print("[DEBUG] Python:", platform.python_version())
     print("[DEBUG] OS:", platform.platform())
@@ -103,18 +130,29 @@ def diag():
     print("[DEBUG] which chromedriver:", find_on_path("chromedriver"))
     print("=== DIAG END ===")
 
+
+# -----------------------------
+# 5) CHROME/CHROMEDRIVER KURULUMU (HEADLESS)
+# -----------------------------
 def build_driver():
-    """Sistem Chrome/Driver varsa onu kullanır; yoksa webdriver_manager ile indirir."""
+    """
+    Sahra: Sistem Chrome/Driver varsa onu kullanır; yoksa webdriver_manager ile indirir.
+    Railway'de:
+      - NIXPACKS_PKGS = "chromium chromium-driver fonts-liberation"
+      - CHROME_BIN = "/usr/bin/chromium"
+      - USE_SYSTEM_CHROME = "1"
+    ayarlıysa sistemdekileri bulur.
+    """
     chrome_options = Options()
 
-    # Headless + konteyner güvenli bayraklar
-    chrome_options.add_argument("--headless=new")                # ← yeni headless
+    # Headless + konteyner güvenli bayraklar (bunlar şart)
+    chrome_options.add_argument("--headless=new")                # yeni headless mod (stabil)
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--no-sandbox")                  # ← container'da şart
-    chrome_options.add_argument("--disable-dev-shm-usage")       # ← /dev/shm küçük
+    chrome_options.add_argument("--no-sandbox")                  # container'da şart
+    chrome_options.add_argument("--disable-dev-shm-usage")       # /dev/shm küçük, çakılmasın
     chrome_options.add_argument("--disable-software-rasterizer")
-    chrome_options.add_argument("--remote-debugging-port=9222")  # ← headless kararlılık
+    chrome_options.add_argument("--remote-debugging-port=9222")  # headless kararlılığı artırır
     chrome_options.add_argument("--lang=tr-TR")
     chrome_options.add_argument(
         "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -122,7 +160,7 @@ def build_driver():
     )
 
     if USE_SYSTEM_CHROME:
-        # ↓↓↓ ÖNEMLI: ENV boşsa bile literal string'e düşmeyelim; önce PATH dene
+        # ENV'lerden oku; boş ise PATH'te ara (literal stringe düşmeyelim)
         env_chrome = os.getenv("CHROME_BIN", "")
         env_driver = os.getenv("CHROMEDRIVER_PATH", "")
 
@@ -136,11 +174,13 @@ def build_driver():
         # Eğer driver bulunamadıysa ya da dosya değilse güvenle webdriver_manager'a düş
         if not CHROME_BIN or not CHROMEDRIVER_PATH or not exists_file(CHROMEDRIVER_PATH):
             print("[WARN] System chromedriver bulunamadı -> webdriver_manager fallback")
-            # NOT: Burada binary_location'ı set etmeyip, indirilen driver ile açacağız
+            # Not: binary_location set etmeden de çalışır; ama varsa set etmek iyi olur
+            if CHROME_BIN:
+                chrome_options.binary_location = CHROME_BIN  # sistem chromium'u belirt
             service = Service(ChromeDriverManager().install())
         else:
-            chrome_options.binary_location = CHROME_BIN            # ← sistem chromium yolunu ver
-            service = Service(CHROMEDRIVER_PATH)                   # ← sistem chromedriver'ı kullan
+            chrome_options.binary_location = CHROME_BIN
+            service = Service(CHROMEDRIVER_PATH)
     else:
         print("[DEBUG] Using WEBDRIVER_MANAGER")
         service = Service(ChromeDriverManager().install())
@@ -150,9 +190,11 @@ def build_driver():
     print("[DEBUG] ChromeDriver READY")
     return driver
 
+
 # -----------------------------
-# Basit durum takibi (ilk VAR ve YOK→VAR'ta bildir)
+# 6) DURUM TAKİBİ ve NORMALİZASYON
 # -----------------------------
+# Sahra: Bildirimleri "ilk kez VAR" ve "YOK→VAR geçişinde" atmak için son durumları tutuyoruz.
 last_status = {item["url"]: None for item in urls_to_check}
 
 def normalize_found(res):
@@ -160,7 +202,7 @@ def normalize_found(res):
     Helper: check_stock_* fonksiyonlarının döndürdüğünü tek tipe çevirir.
     - Liste/tuple/set ise string'lere çevir.
     - String ise boş değilse tek elemanlı liste yap.
-    - True ise 'ANY' ekle.
+    - True ise 'ANY' ekle (yani "herhangi bir boy var").
     - Diğer durumlarda boş liste dön.
     """
     if isinstance(res, (list, tuple, set)):
@@ -171,22 +213,26 @@ def normalize_found(res):
         return ["ANY"]
     return []
 
+
 # -----------------------------
-# Döngü
+# 7) ANA DÖNGÜ
 # -----------------------------
 if __name__ == "__main__":
-    # ← Teşhis bloğunu ilk turda bir kez çalıştır; loglarda ortamı gör.
+    # Sahra: İlk turda ortamı bir raporla (loglarda göreceğiz)
     diag()
 
     while True:
-        driver = build_driver()  # ← Her tur yeni, temiz driver aç
+        # Her turda temiz bir driver aç (sayfa çakılmalarına karşı daha stabil)
+        driver = build_driver()
         try:
             for item in urls_to_check:
                 url   = item.get("url")
                 store = item.get("store")
+                sizes = item.get("sizes", [])  # ← ÖNEMLI: Link bazlı beden listesi
 
                 print("--------------------------------")
-                print(f"[DEBUG] GET {url}")
+                print(f"[DEBUG] GET {url} / Sizes={sizes}")
+
                 try:
                     driver.get(url)
 
@@ -198,22 +244,24 @@ if __name__ == "__main__":
                     except Exception:
                         print("[WARN] readyState wait timed out")
 
-                    # Mağaza türüne göre scraper çağır
+                    # Mağaza türüne göre ilgili scraper'ı çağır
                     if store == "zara":
-                        # ← scraperHelpers.check_stock_zara(driver, sizes_to_check)
-                        raw = check_stock_zara(driver, sizes_to_check)
+                        # Sahra: scraperHelpers içinde check_stock_zara(driver, sizes) olmalı
+                        raw = check_stock_zara(driver, sizes)
                     elif store == "bershka":
-                        raw = check_stock_bershka(driver, sizes_to_check)
+                        raw = check_stock_bershka(driver, sizes)
                     else:
                         print("Unknown store, skipping:", store)
                         continue
 
+                    # Dönüşü normalize et
                     found_sizes = normalize_found(raw)
                     currently_in_stock = bool(found_sizes)
                     was_in_stock       = last_status.get(url)
 
                     print(f"DEBUG found_sizes={found_sizes} was={was_in_stock} now={currently_in_stock}")
 
+                    # Bildirim kriteri: ilk kez VAR veya YOK→VAR geçişi
                     should_notify = (
                         (was_in_stock is None and currently_in_stock) or  # ilk turda VAR
                         (was_in_stock is False and currently_in_stock)     # YOK→VAR
@@ -224,16 +272,24 @@ if __name__ == "__main__":
                         message = f"🛍️ Stok VAR: {msg_sizes}\n{url}"
                         print("ALERT:", message)
                         if should_notify:
-                            # Headless ortam: ses çalma çıkarıldı; sadece Telegram
                             send_telegram_message(message)
                     else:
-                        print(f"No stock for {', '.join(sizes_to_check)} @ {url}")
+                        # Sahra: Burada log ile bedenleri ve URL'i görürsün
+                        print(f"No stock for {', '.join(sizes) if sizes else '(no sizes provided)'} @ {url}")
 
                     # Son durum kaydı
                     last_status[url] = currently_in_stock
 
                 except Exception as e:
                     print(f"[ERROR] URL {url} hata: {e}")
+
+                # ----------------------------------------------------------
+                # Sahra: Aynı domaini art arda çok hızlı vurmamak için
+                # URL'ler arası minik gecikme (varsayılan 1–2 sn).
+                per_url_delay = int(os.getenv("PER_URL_DELAY", "2"))  # ← Railway/ENV’den yönetilebilir
+                print(f"[DEBUG] Per-URL delay: {per_url_delay}s")      # ← Logda net gör
+                time.sleep(per_url_delay)
+                # ----------------------------------------------------------
 
         finally:
             print("Closing the browser…")
@@ -242,7 +298,7 @@ if __name__ == "__main__":
             except Exception:
                 pass
 
-            # Tur arası bekleme
+            # Tur arası bekleme (config.json'dan)
             sleep_time = random.randint(sleep_min_seconds, sleep_max_seconds)
             print(f"Sleeping for {sleep_time // 60} minutes and {sleep_time % 60} seconds…")
             time.sleep(sleep_time)
