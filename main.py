@@ -73,29 +73,32 @@ TELEGRAM_TEST_ON_START = os.getenv("TELEGRAM_TEST_ON_START", "True").strip().low
 TELEGRAM_ENABLED = bool(BOT_API and CHAT_ID)
 print("TELEGRAM_ENABLED:", TELEGRAM_ENABLED)
 
-
 # -----------------------------
 # 3) TELEGRAM GÖNDERİM YARDIMCISI
 # -----------------------------
 def send_telegram_message(message: str):
     """
-    Telegram'a metin mesajı gönderir. BOT_API/CHAT_ID yoksa göndermez.
-    Railway'de hata varsa HTTP cevabını stdout'a yazar.
+    Eski VS sürümündekiyle aynı davranış:
+    - BOT_API/CHAT_ID kullanır
+    - form-data (data=...) gönderir
+    - kısa timeout
     """
     if not TELEGRAM_ENABLED:
         print("⚠️ Telegram message skipped (missing BOT_API or CHAT_ID).")
         return
 
     url = f"https://api.telegram.org/bot{BOT_API}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": message}
-
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": message
+    }
     try:
-        r = requests.post(url, data=payload, timeout=15)
+        # ÖNEMLİ: eski kodda olduğu gibi data=... (JSON değil)
+        r = requests.post(url, data=payload, timeout=10)
         print("[TG]", r.status_code, r.text[:200])
         r.raise_for_status()
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
         print(f"[TG] send error: {e}")
-
 
 # -----------------------------
 # 4) ORTAM/DRIVER YARDIMCILARI
@@ -215,6 +218,37 @@ if __name__ == "__main__":
 
                 try:
                     driver.get(url)
+                    # --- [ ZARA COOKIE/PAGE READY] ---
+                    # 1) Çerez/popup kapatma (Zara farklı varyantlar kullanabiliyor)
+                    try:
+                        # Sık görülen Zara çerez buton seçicileri (biri tutar)
+                        selectors = [
+                            "button#onetrust-accept-btn-handler",
+                            "button[data-qa='privacy-accept']",
+                            "button[aria-label='Kabul et']",
+                            "button.cookie-accept, .ot-sdk-container #onetrust-accept-btn-handler"
+                        ]
+                        for sel in selectors:
+                            els = driver.find_elements("css selector", sel)
+                            if els:
+                                try: els[0].click()
+                                except Exception: pass
+                                time.sleep(0.5)
+                                break
+                    except Exception as _e:
+                        print("[COOKIE] ignore:", _e)
+
+                    # 2) Beden butonları DOM'a gelsin (maks 10 sn)
+                    try:
+                        WebDriverWait(driver, 10).until(
+                            lambda d: d.find_elements(
+                                "css selector",
+                                "[data-qa='size-selector'] button, .size-selector button, .product-size-selector button, button.size, li.size button"
+                            )
+                        )
+                    except Exception:
+                        print("[WARN] size buttons not found within 10s")
+
 
                     # Sayfa tam yüklensin (readyState=complete)
                     try:
@@ -255,12 +289,39 @@ if __name__ == "__main__":
                         raw = check_stock_zara(driver, sizes)
                     elif store == "bershka":
                         raw = check_stock_bershka(driver, sizes)
+                        # --- [ADD - RAW LOG + FALLBACK] ---
+                        print(f"[SCRAPER RAW] store={store} raw={raw!r}")
+
+                        # İlk yorum: eski kod, butonlardan direkt beden adını topluyordu (başarılıydı)
+                        # Eğer scraper boş dönerse, basit buton fallback dene:
+                        fallback_sizes = []
+                        try:
+                            btns = driver.find_elements(
+                                "css selector",
+                                "[data-qa='size-selector'] button, .size-selector button, .product-size-selector button, button.size, li.size button"
+                            )
+                            for b in btns:
+                                txt = (b.text or "").strip()
+                                cls = (b.get_attribute("class") or "").lower()
+                                aria = (b.get_attribute("aria-disabled") or "").lower()
+                                disabled = ("disabled" in cls) or (aria == "true")
+                                if txt and not disabled:
+                                    fallback_sizes.append(txt)
+                        except Exception as _e:
+                            print(f"[FALLBACK] error: {_e}")
+                        # --- [END ADD] ---
+
                     else:
                         print("Unknown store, skipping:", store)
                         continue
 
                     # Dönüşü normalize et
+                   # Dönüşü normalize et (önce scraper, boşsa fallback)
                     found_sizes = normalize_found(raw)
+                    if not found_sizes and fallback_sizes:
+                        print(f"[FALLBACK] available buttons -> {fallback_sizes}")
+                        found_sizes = [s for s in fallback_sizes if s.strip()]
+
                     currently_in_stock = bool(found_sizes)
                     was_in_stock       = last_status.get(url)
 
@@ -281,15 +342,19 @@ if __name__ == "__main__":
                             msg_sizes = f"{found_sizes[0]} beden stokta!!!!"
                         else:
                             msg_sizes = f"{', '.join(found_sizes)} beden stokta!!!!"
-                    
-
+                            
                     if currently_in_stock:
-                        # Mesaj formatı (tek/multi beden)
-                        if len(found_sizes) == 1:
-                            msg_sizes = f"{found_sizes[0]} beden stokta!!!!"
-                        else:
-                            msg_sizes = f"{', '.join(found_sizes)} beden stokta!!!!"
+                    # --- [UPDATE - MATCHED SIZES] ---
+                    # config.json'daki takip edilen bedenlerle kesişimi alalım
+                    upper_sizes = [x.upper() for x in sizes]
+                    matched = [s for s in found_sizes if s.upper() in upper_sizes]
 
+                    to_announce = matched if matched else found_sizes  # matched boşsa yine de görüneni basalım
+                    if to_announce:
+                        if len(to_announce) == 1:
+                            msg_sizes = f"{to_announce[0]} beden stokta!!!!"
+                        else:
+                            msg_sizes = f"{', '.join(to_announce)} beden stokta!!!!"
                         message = f"🛍️{msg_sizes}\nLink: {url}"
 
                         # İlk turda VAR (was None) veya YOK→VAR geçişinde bildir
