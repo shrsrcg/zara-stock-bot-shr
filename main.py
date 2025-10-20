@@ -11,7 +11,6 @@ import logging
 
 from dotenv import load_dotenv
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -36,7 +35,6 @@ if 'pygame' not in sys.modules:
 # --- HOTFIX SONU ---
 
 # Sahra: Bu helper'ları iki farklı dosya adı senaryosuna karşı güvenli import ediyoruz.
-# Önce doğru olanı (scraperHelpers.py, büyük H) dene; olmazsa küçük h'li dosyaya düş.
 try:
     from scraperHelpers import check_stock_zara, check_stock_bershka
 except ModuleNotFoundError:
@@ -47,31 +45,31 @@ except ModuleNotFoundError:
 # 1) CONFIG YÜKLEME
 # -----------------------------
 # Sahra: Burada config.json dosyasını okuyoruz. Yeni yapıda "her URL için ayrı beden listesi" var.
-# Aşağıda örnek config.json şablonu verdim. Ona göre düzenlersen, kod link-bazlı beden arar.
 with open("config.json", "r") as config_file:
     config = json.load(config_file)
 
 # Eski global "sizes_to_check" kaldırıldı. Artık her URL için "sizes" alanı var.
 urls_to_check       = config["urls"]
-sleep_min_seconds   = config.get("sleep_min_seconds", 30)  # Sahra: varsayılanları güvenceye aldım
+sleep_min_seconds   = config.get("sleep_min_seconds", 30)  # varsayılanları güvenceye aldım
 sleep_max_seconds   = config.get("sleep_max_seconds", 90)
-TELEGRAM_ENABLED = os.getenv("TELEGRAM_ENABLED", "False").lower() == "true"
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
-TELEGRAM_TEST_ON_START = os.getenv("TELEGRAM_TEST_ON_START", "True").lower() == "true"
 
-# Stok geçişini takip için basit bellek
-_last_state = {}  # key=url -> bool (True=stok var)
+# Stok geçişini takip için basit bellek (YOK→VAR geçişinde bildirim)
+last_status = {item["url"]: None for item in urls_to_check}
 
 
 # -----------------------------
 # 2) ENV / TELEGRAM
 # -----------------------------
-load_dotenv()  # Sahra: .env varsa oradan da BOT_API/CHAT_ID alır (Railway Variables önceliklidir)
+load_dotenv()  # .env varsa da okusun (Railway Variables önceliklidir)
 
+# Not: Standart olarak BOT_API + CHAT_ID kullanıyoruz.
 BOT_API  = os.getenv("BOT_API")
 CHAT_ID  = os.getenv("CHAT_ID")
 
+# Opsiyonel başlangıç testi için ortam bayrağı
+TELEGRAM_TEST_ON_START = os.getenv("TELEGRAM_TEST_ON_START", "True").strip().lower() == "true"
+
+# Telegram aktif mi?
 TELEGRAM_ENABLED = bool(BOT_API and CHAT_ID)
 print("TELEGRAM_ENABLED:", TELEGRAM_ENABLED)
 
@@ -79,47 +77,21 @@ print("TELEGRAM_ENABLED:", TELEGRAM_ENABLED)
 # -----------------------------
 # 3) TELEGRAM GÖNDERİM YARDIMCISI
 # -----------------------------
-def telegram_send(text: str) -> None:
-    """
-    Telegram’a mesaj gönderir ve HTTP yanıtını loglar.
-    Railway'de hatayı direkt görmek için kullanılır.
-    """
-    if not TELEGRAM_ENABLED:
-        logging.info("[TG] TELEGRAM_ENABLED=False; mesaj gönderilmedi.")
-        return
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        logging.error("[TG] BOT_TOKEN/CHAT_ID eksik! Gönderim iptal.")
-        return
-
-    api = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": text,
-        "disable_web_page_preview": True,
-        "parse_mode": "HTML",
-    }
-
-    try:
-        r = requests.post(api, json=payload, timeout=15)
-        if r.status_code != 200:
-            logging.error("[TG] HATA status=%s body=%s", r.status_code, r.text)
-        else:
-            logging.info("[TG] OK status=%s", r.status_code)
-    except Exception as e:
-        logging.exception("[TG] İSTİSNA: %s", e)
-
 def send_telegram_message(message: str):
     """
-    Sahra: Telegram'a metin mesajı göndermek için tek nokta.
-    BOT_API/CHAT_ID yoksa sessizce atlar; hata vermez.
+    Telegram'a metin mesajı gönderir. BOT_API/CHAT_ID yoksa göndermez.
+    Railway'de hata varsa HTTP cevabını stdout'a yazar.
     """
     if not TELEGRAM_ENABLED:
         print("⚠️ Telegram message skipped (missing BOT_API or CHAT_ID).")
         return
+
     url = f"https://api.telegram.org/bot{BOT_API}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": message}
+
     try:
-        r = requests.post(url, data={"chat_id": CHAT_ID, "text": message}, timeout=12)
-        print("[TG]", r.status_code, r.text[:120])
+        r = requests.post(url, data=payload, timeout=15)
+        print("[TG]", r.status_code, r.text[:200])
         r.raise_for_status()
     except Exception as e:
         print(f"[TG] send error: {e}")
@@ -130,7 +102,7 @@ def send_telegram_message(message: str):
 # -----------------------------
 def getenv_bool(name: str, default: bool=False) -> bool:
     """
-    Sahra: Railway'de boolean env değerlerini çeşitli şekillerde True kabul etmek için.
+    Railway'de boolean env değerlerini çeşitli şekillerde True kabul etmek için.
     Örn: 1, true, yes, on hepsi True olur.
     """
     val = os.getenv(name)
@@ -138,20 +110,15 @@ def getenv_bool(name: str, default: bool=False) -> bool:
         return default
     return str(val).strip().lower() in ("1", "true", "yes", "on")
 
-USE_SYSTEM_CHROME = getenv_bool("USE_SYSTEM_CHROME", False)  # Railway Variables'ta 1 yapmıştık.
+USE_SYSTEM_CHROME = getenv_bool("USE_SYSTEM_CHROME", False)  # İstersen kullanırsın
 
 def find_on_path(name: str):
     """PATH üzerinde verilen programın tam yolunu döndürür. Örn: chromedriver."""
     return shutil.which(name)  # bulunamazsa None döner
 
-def exists_file(p: str) -> bool:
-    """Verilen yol geçerli ve çalıştırılabilir bir dosya mı?"""
-    return bool(p) and os.path.isfile(p) and os.access(p, os.X_OK)
-
 def diag():
     """
-    Sahra: Bu fonksiyon sadece teşhis amaçlı. Deploy loglarında ortamı hızlıca görebilmemiz için.
-    İlk turda bir kez çalıştırıyoruz.
+    Deploy loglarında ortamı hızlıca görebilmemiz için ilk turda bir kez çalışır.
     """
     print("=== DIAG START ===")
     print("[DEBUG] Python:", platform.python_version())
@@ -197,16 +164,14 @@ def build_driver():
         print("[WARN] CHROME_BIN var ama dosya yok/çalıştırılamıyor → yok sayılıyor")
 
     print("[DEBUG] Using SELENIUM MANAGER")
-    driver = webdriver.Chrome(options=chrome_options)  # Service vermiyoruz
+    driver = webdriver.Chrome(options=chrome_options)
     print("[DEBUG] ChromeDriver READY (Selenium Manager)")
     return driver
 
-# -----------------------------
-# 6) DURUM TAKİBİ ve NORMALİZASYON
-# -----------------------------
-# Sahra: Bildirimleri "ilk kez VAR" ve "YOK→VAR geçişinde" atmak için son durumları tutuyoruz.
-last_status = {item["url"]: None for item in urls_to_check}
 
+# -----------------------------
+# 6) NORMALİZASYON
+# -----------------------------
 def normalize_found(res):
     """
     Helper: check_stock_* fonksiyonlarının döndürdüğünü tek tipe çevirir.
@@ -229,10 +194,11 @@ def normalize_found(res):
 # -----------------------------
 if __name__ == "__main__":
     # --- [STARTUP TEST MESAJI] ---
- if TELEGRAM_TEST_ON_START:
-    telegram_send("✅ <b>Bot çalıştı</b> – Railway başlangıç testi.")
+    if TELEGRAM_TEST_ON_START and TELEGRAM_ENABLED:
+        send_telegram_message("✅ Bot çalıştı – Railway başlangıç testi.")
+    # --- [END] ---
 
-    # Sahra: İlk turda ortamı bir raporla (loglarda göreceğiz)
+    # İlk turda ortam raporu
     diag()
 
     while True:
@@ -242,7 +208,7 @@ if __name__ == "__main__":
             for item in urls_to_check:
                 url   = item.get("url")
                 store = item.get("store")
-                sizes = item.get("sizes", [])  # ← ÖNEMLI: Link bazlı beden listesi
+                sizes = item.get("sizes", [])  # ← ÖNEMLİ: Link bazlı beden listesi
 
                 print("--------------------------------")
                 print(f"[DEBUG] GET {url} / Sizes={sizes}")
@@ -260,7 +226,7 @@ if __name__ == "__main__":
 
                     # Mağaza türüne göre ilgili scraper'ı çağır
                     if store == "zara":
-                        # Sahra: scraperHelpers içinde check_stock_zara(driver, sizes) olmalı
+                        # scraperHelpers içinde check_stock_zara(driver, sizes) olmalı
                         raw = check_stock_zara(driver, sizes)
                     elif store == "bershka":
                         raw = check_stock_bershka(driver, sizes)
@@ -273,47 +239,36 @@ if __name__ == "__main__":
                     currently_in_stock = bool(found_sizes)
                     was_in_stock       = last_status.get(url)
 
-                    print(f"DEBUG found_sizes={found_sizes} was={was_in_stock} now={currently_in_stock}") 
-                    
-                    # --- [STOCK TRANSITION NOTIFY] ---
-                    if currently_in_stock and was_in_stock is not True:
-                        msg = (
-                            "🎯 <b>STOK VAR</b>\n"
-                            f"{url}\n"
-                            f"İstenen bedenler: {sizes}\n"
-                            f"Bulunan: {found_sizes}\n"
-                        )
-                        telegram_send(msg)
-                    elif not currently_in_stock and was_in_stock is True:
-                         logging.info(f"Stok tekrar kapandı: {url}")
-                         
-                    # Bildirim kriteri: ilk kez VAR veya YOK→VAR geçişi
-                    should_notify = (
-                        (was_in_stock is None and currently_in_stock) or  # ilk turda VAR
-                        (was_in_stock is False and currently_in_stock)     # YOK→VAR
-                    )
+                    print(f"DEBUG found_sizes={found_sizes} was={was_in_stock} now={currently_in_stock}")
 
+                    # --- [STOCK NOTIFY EXACT MESSAGE] ---
                     if currently_in_stock:
-                        msg_sizes = ", ".join(found_sizes)
-                        message = f"🛍️ Stok VAR: {msg_sizes}\n{url}"
+                        # Mesaj formatı (tek/multi beden)
+                        if len(found_sizes) == 1:
+                            msg_sizes = f"{found_sizes[0]} beden stokta!!!!"
+                        else:
+                            msg_sizes = f"{', '.join(found_sizes)} beden stokta!!!!"
+
+                        message = f"🛍️{msg_sizes}\nLink: {url}"
+
+                        # İlk turda VAR (was None) veya YOK→VAR geçişinde bildir
+                        should_notify = (was_in_stock is None and currently_in_stock) or (was_in_stock is False and currently_in_stock)
                         print("ALERT:", message)
                         if should_notify:
                             send_telegram_message(message)
                     else:
-                        # Sahra: Burada log ile bedenleri ve URL'i görürsün
                         print(f"No stock for {', '.join(sizes) if sizes else '(no sizes provided)'} @ {url}")
 
-                    # Son durum kaydı
+                    # Son durumu güncelle
                     last_status[url] = currently_in_stock
 
                 except Exception as e:
                     print(f"[ERROR] URL {url} hata: {e}")
 
                 # ----------------------------------------------------------
-                # Sahra: Aynı domaini art arda çok hızlı vurmamak için
-                # URL'ler arası minik gecikme (varsayılan 1–2 sn).
-                per_url_delay = int(os.getenv("PER_URL_DELAY", "2"))  # ← Railway/ENV’den yönetilebilir
-                print(f"[DEBUG] Per-URL delay: {per_url_delay}s")      # ← Logda net gör
+                # Aynı domaini art arda çok hızlı vurmamak için küçük gecikme
+                per_url_delay = int(os.getenv("PER_URL_DELAY", "2"))  # Railway/ENV’den yönetilebilir
+                print(f"[DEBUG] Per-URL delay: {per_url_delay}s")
                 time.sleep(per_url_delay)
                 # ----------------------------------------------------------
 
