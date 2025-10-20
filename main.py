@@ -1,7 +1,6 @@
 # ============================
 # main.py — Railway/Headless
-# Sahra için: Sade, tek Telegram fonksiyonu (BOT_API/CHAT_ID),
-# Zara cookie kapatma + buton bekleme + fallback, net loglar.
+# Sade: BOT_API/CHAT_ID, anti-bot, uzun bekleme+scroll, JSON fallback, net loglar
 # ============================
 import json
 import time
@@ -69,7 +68,7 @@ print("TELEGRAM_ENABLED:", TELEGRAM_ENABLED)
 # -----------------------------
 def send_telegram_message(message: str):
     """
-    Eski VS sürümüne uygun: data=payload (JSON değil), kısa timeout.
+    VS sürümündeki gibi: data=payload (JSON değil), kısa timeout.
     """
     if not TELEGRAM_ENABLED:
         print("⚠️ Telegram message skipped (missing BOT_API or CHAT_ID).")
@@ -107,6 +106,7 @@ def diag():
 def build_driver():
     """
     Selenium Manager kullanır (chromedriver kendisi halleder).
+    Anti-bot ayarları + webdriver izini gizleme.
     """
     chrome_options = Options()
     chrome_options.add_argument("--headless=new")
@@ -121,6 +121,10 @@ def build_driver():
         "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     )
+    # Anti-bot flags
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option("useAutomationExtension", False)
 
     env_chrome = os.getenv("CHROME_BIN", "")
     if env_chrome and os.path.isfile(env_chrome) and os.access(env_chrome, os.X_OK):
@@ -129,12 +133,21 @@ def build_driver():
 
     print("[DEBUG] Using SELENIUM MANAGER")
     driver = webdriver.Chrome(options=chrome_options)
+
+    # webdriver izini gizle
+    try:
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+        })
+    except Exception:
+        pass
+
     print("[DEBUG] ChromeDriver READY (Selenium Manager)")
     return driver
 
 
 # -----------------------------
-# 5) NORMALİZASYON
+# 5) NORMALİZASYON + FALLBACK PARSER
 # -----------------------------
 def _clean_size_token(s: str) -> str:
     # "S / 36", "S(ONLINE)" vb. sadeleştir → "S" veya "36"
@@ -165,12 +178,74 @@ def normalize_found(res):
         return ["ANY"]
     return []
 
+def extract_sizes_from_dom_or_json(driver):
+    """
+    1) DOM'daki beden butonlarını dene (scroll + farklı seçiciler + 30sn ısrar).
+    2) Olmazsa script içi JSON'dan 'inStock' olanları çek.
+    Dönen: ['S','M','34',...] ya da [].
+    """
+    # --- 1) DOM yolu ---
+    selector_groups = [
+        "[data-qa='size-selector'] button, .product-size-selector button, .size-selector button, li.size button, button.size",
+        "button[aria-label*='Beden'], button[aria-label*='Size'], button[aria-label*='Talla']",
+    ]
+
+    deadline = time.time() + 30  # 30 sn'ye kadar ısrar et
+    while time.time() < deadline:
+        try:
+            # biraz aşağı kaydır
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.35);")
+        except Exception:
+            pass
+        for sel in selector_groups:
+            btns = driver.find_elements("css selector", sel)
+            found = []
+            for b in btns:
+                txt = (b.text or "").strip()
+                if not txt:
+                    try:
+                        txt = (b.get_attribute("aria-label") or "").strip()
+                    except Exception:
+                        pass
+                cls = (b.get_attribute("class") or "").lower()
+                aria = (b.get_attribute("aria-disabled") or "").lower()
+                disabled = ("disabled" in cls) or (aria == "true")
+                if txt and not disabled:
+                    found.append(txt)
+            if found:
+                return normalize_found(found)
+        time.sleep(1.0)
+
+    # --- 2) JSON yolu ---
+    sizes = set()
+    scripts = driver.find_elements("css selector", "script")
+    for s in scripts:
+        try:
+            blob = s.get_attribute("innerHTML") or ""
+        except Exception:
+            blob = ""
+        if not blob:
+            continue
+        if not any(k in blob for k in ["sizes", "availability", "variants", "skus", "inStock", "stock"]):
+            continue
+
+        # "size/name":"S" yakınında inStock
+        for m in re.finditer(r'"(size|name)"\s*:\s*"([^"]{1,6})".{0,120}?"(availability|inStock)"\s*:\s*(true|"inStock")',
+                             blob, re.IGNORECASE | re.DOTALL):
+            sizes.add(m.group(2))
+        # "value/sizeCode" varyantı
+        for m in re.finditer(r'"(value|sizeCode|sizeId)"\s*:\s*"([^"]{1,6})".{0,120}?"(availability|inStock)"\s*:\s*(true|"inStock")',
+                             blob, re.IGNORECASE | re.DOTALL):
+            sizes.add(m.group(2))
+
+    return normalize_found(list(sizes))
+
 
 # -----------------------------
 # 6) ANA DÖNGÜ
 # -----------------------------
 if __name__ == "__main__":
-    # Başlangıç testi
+    # Başlangıç testi (istemiyorsan Railway'de TELEGRAM_TEST_ON_START=False yap)
     if TELEGRAM_TEST_ON_START and TELEGRAM_ENABLED:
         send_telegram_message("✅ Bot çalıştı – Railway başlangıç testi.")
 
@@ -212,24 +287,13 @@ if __name__ == "__main__":
 
                     # readyState=complete
                     try:
-                        WebDriverWait(driver, 15).until(
+                        WebDriverWait(driver, 20).until(
                             lambda d: d.execute_script("return document.readyState") == "complete"
                         )
                     except Exception:
                         print("[WARN] readyState wait timed out")
 
-                    # Beden butonları DOM'a gelsin (maks 10 sn)
-                    try:
-                        WebDriverWait(driver, 10).until(
-                            lambda d: d.find_elements(
-                                "css selector",
-                                "[data-qa='size-selector'] button, .size-selector button, .product-size-selector button, button.size, li.size button"
-                            )
-                        )
-                    except Exception:
-                        print("[WARN] size buttons not found within 10s")
-
-                    # 1) Scraper'dan ham sonuç
+                    # 1) Scraper ham sonuç
                     if store == "zara":
                         raw = check_stock_zara(driver, sizes)
                     elif store == "bershka":
@@ -240,8 +304,8 @@ if __name__ == "__main__":
 
                     print(f"[SCRAPER RAW] store={store} raw={raw!r}")
 
-                    # 2) Fallback (scraper boşsa UI'dan topla)
-                    fallback_sizes = []
+                    # 2) DOM fallback (butonlardan)
+                    fallback_btn = []
                     try:
                         btns = driver.find_elements(
                             "css selector",
@@ -253,15 +317,20 @@ if __name__ == "__main__":
                             aria = (b.get_attribute("aria-disabled") or "").lower()
                             disabled = ("disabled" in cls) or (aria == "true")
                             if txt and not disabled:
-                                fallback_sizes.append(txt)
+                                fallback_btn.append(txt)
                     except Exception as _e:
-                        print(f"[FALLBACK] error: {_e}")
+                        print(f"[FALLBACK BTN] error: {_e}")
 
-                    # 3) Normalize et (önce scraper, boşsa fallback)
+                    # 3) Normalize (önce scraper → boşsa DOM → hâlâ boşsa JSON)
                     found_sizes = normalize_found(raw)
-                    if not found_sizes and fallback_sizes:
-                        print(f"[FALLBACK] available buttons -> {fallback_sizes}")
-                        found_sizes = normalize_found(fallback_sizes)
+                    if not found_sizes and fallback_btn:
+                        print(f"[FALLBACK BTN] available -> {fallback_btn}")
+                        found_sizes = normalize_found(fallback_btn)
+                    if not found_sizes:
+                        json_sizes = extract_sizes_from_dom_or_json(driver)
+                        if json_sizes:
+                            print(f"[FALLBACK JSON] sizes -> {json_sizes}")
+                            found_sizes = json_sizes
 
                     # 4) Durum & log
                     currently_in_stock = bool(found_sizes)
