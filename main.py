@@ -346,8 +346,8 @@ if __name__ == "__main__":
                     if currently_in_stock:
                     # --- [UPDATE - MATCHED SIZES] ---
                     # config.json'daki takip edilen bedenlerle kesişimi alalım
-                    upper_sizes = [x.upper() for x in sizes]
-                    matched = [s for s in found_sizes if s.upper() in upper_sizes]
+                     upper_sizes = [x.upper() for x in sizes]
+                     matched = [s for s in found_sizes if s.upper() in upper_sizes]
 
                     to_announce = matched if matched else found_sizes  # matched boşsa yine de görüneni basalım
                     if to_announce:
@@ -356,7 +356,6 @@ if __name__ == "__main__":
                         else:
                             msg_sizes = f"{', '.join(to_announce)} beden stokta!!!!"
                         message = f"🛍️{msg_sizes}\nLink: {url}"
-
                         # İlk turda VAR (was None) veya YOK→VAR geçişinde bildir
                         should_notify = (was_in_stock is None and currently_in_stock) or (was_in_stock is False and currently_in_stock)
                         print("ALERT:", message)
