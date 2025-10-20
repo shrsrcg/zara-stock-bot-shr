@@ -7,6 +7,7 @@ import time
 import random
 import os
 import requests
+import logging
 
 from dotenv import load_dotenv
 from selenium import webdriver
@@ -54,6 +55,13 @@ with open("config.json", "r") as config_file:
 urls_to_check       = config["urls"]
 sleep_min_seconds   = config.get("sleep_min_seconds", 30)  # Sahra: varsayılanları güvenceye aldım
 sleep_max_seconds   = config.get("sleep_max_seconds", 90)
+TELEGRAM_ENABLED = os.getenv("TELEGRAM_ENABLED", "False").lower() == "true"
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+TELEGRAM_TEST_ON_START = os.getenv("TELEGRAM_TEST_ON_START", "True").lower() == "true"
+
+# Stok geçişini takip için basit bellek
+_last_state = {}  # key=url -> bool (True=stok var)
 
 
 # -----------------------------
@@ -71,6 +79,35 @@ print("TELEGRAM_ENABLED:", TELEGRAM_ENABLED)
 # -----------------------------
 # 3) TELEGRAM GÖNDERİM YARDIMCISI
 # -----------------------------
+def telegram_send(text: str) -> None:
+    """
+    Telegram’a mesaj gönderir ve HTTP yanıtını loglar.
+    Railway'de hatayı direkt görmek için kullanılır.
+    """
+    if not TELEGRAM_ENABLED:
+        logging.info("[TG] TELEGRAM_ENABLED=False; mesaj gönderilmedi.")
+        return
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        logging.error("[TG] BOT_TOKEN/CHAT_ID eksik! Gönderim iptal.")
+        return
+
+    api = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": text,
+        "disable_web_page_preview": True,
+        "parse_mode": "HTML",
+    }
+
+    try:
+        r = requests.post(api, json=payload, timeout=15)
+        if r.status_code != 200:
+            logging.error("[TG] HATA status=%s body=%s", r.status_code, r.text)
+        else:
+            logging.info("[TG] OK status=%s", r.status_code)
+    except Exception as e:
+        logging.exception("[TG] İSTİSNA: %s", e)
+
 def send_telegram_message(message: str):
     """
     Sahra: Telegram'a metin mesajı göndermek için tek nokta.
@@ -191,6 +228,10 @@ def normalize_found(res):
 # 7) ANA DÖNGÜ
 # -----------------------------
 if __name__ == "__main__":
+    # --- [STARTUP TEST MESAJI] ---
+ if TELEGRAM_TEST_ON_START:
+    telegram_send("✅ <b>Bot çalıştı</b> – Railway başlangıç testi.")
+
     # Sahra: İlk turda ortamı bir raporla (loglarda göreceğiz)
     diag()
 
@@ -232,8 +273,20 @@ if __name__ == "__main__":
                     currently_in_stock = bool(found_sizes)
                     was_in_stock       = last_status.get(url)
 
-                    print(f"DEBUG found_sizes={found_sizes} was={was_in_stock} now={currently_in_stock}")
-
+                    print(f"DEBUG found_sizes={found_sizes} was={was_in_stock} now={currently_in_stock}") 
+                    
+                    # --- [STOCK TRANSITION NOTIFY] ---
+                    if currently_in_stock and was_in_stock is not True:
+                        msg = (
+                            "🎯 <b>STOK VAR</b>\n"
+                            f"{url}\n"
+                            f"İstenen bedenler: {sizes}\n"
+                            f"Bulunan: {found_sizes}\n"
+                        )
+                        telegram_send(msg)
+                    elif not currently_in_stock and was_in_stock is True:
+                         logging.info(f"Stok tekrar kapandı: {url}")
+                         
                     # Bildirim kriteri: ilk kez VAR veya YOK→VAR geçişi
                     should_notify = (
                         (was_in_stock is None and currently_in_stock) or  # ilk turda VAR
