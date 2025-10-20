@@ -225,6 +225,31 @@ if __name__ == "__main__":
                         print("[WARN] readyState wait timed out")
 
                     # Mağaza türüne göre ilgili scraper'ı çağır
+                    # --- [ RAW LOG + FALLBACK] ---
+                    print(f"[SCRAPER RAW] store={store} raw={raw!r}")
+
+                    found_sizes = normalize_found(raw)
+
+                    # Eğer scraper boş döndüyse hızlı bir fallback dene (Zara/Bershka common seçiciler)
+                    if not found_sizes:
+                        try:
+                            # Genel buton seçicileri (Zara sık değişiyor)
+                            btns = driver.find_elements("css selector", "[data-qa='size-selector'] button, .size-selector button, .product-size-selector button, button.size, li.size button")
+                            tmp = []
+                            for b in btns:
+                                txt = (b.text or "").strip()
+                                cls = (b.get_attribute("class") or "").lower()
+                                aria = (b.get_attribute("aria-disabled") or "").lower()
+                                disabled = ("disabled" in cls) or (aria == "true")
+                                if txt and not disabled:
+                                    tmp.append(txt)
+                            if tmp:
+                                print(f"[FALLBACK] available buttons -> {tmp}")
+                                found_sizes = [s.strip() for s in tmp if s.strip()]
+                        except Exception as _e:
+                            print(f"[FALLBACK] error: {_e}")
+                    
+
                     if store == "zara":
                         # scraperHelpers içinde check_stock_zara(driver, sizes) olmalı
                         raw = check_stock_zara(driver, sizes)
@@ -242,6 +267,22 @@ if __name__ == "__main__":
                     print(f"DEBUG found_sizes={found_sizes} was={was_in_stock} now={currently_in_stock}")
 
                     # --- [STOCK NOTIFY EXACT MESSAGE] ---
+                    # --- [UPDATE - MATCHED SIZES] ---
+                    # İlgilenilen bedenle kesişim (config.json’daki "sizes")
+                    matched = [s for s in found_sizes if (s in sizes) or (s.upper() in [x.upper() for x in sizes])]
+                    if matched:
+                        if len(matched) == 1:
+                            msg_sizes = f"{matched[0]} beden stokta!!!!"
+                        else:
+                            msg_sizes = f"{', '.join(matched)} beden stokta!!!!"
+                    else:
+                        # matched boşsa yine de bulunduğu şekliyle yaz (fallback'ten '?' vs gelirse görürüz)
+                        if len(found_sizes) == 1:
+                            msg_sizes = f"{found_sizes[0]} beden stokta!!!!"
+                        else:
+                            msg_sizes = f"{', '.join(found_sizes)} beden stokta!!!!"
+                    
+
                     if currently_in_stock:
                         # Mesaj formatı (tek/multi beden)
                         if len(found_sizes) == 1:
