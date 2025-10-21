@@ -1,13 +1,10 @@
 # ============================
-# main.py — Railway/Headless (Rev. Sahra)
-# - Headless Chrome (Selenium Manager)
-# - Telegram: ayrıntılı log + diag + timeouts
-# - DOM+JSON fallback parser, uzun bekleme + scroll
-# - Case-insensitive beden eşleştirme
-# - Edge-only veya Always-notify seçeneği
-# - Cooldown (spam önleme)
-# - Mesaj formatı: SADE (yalnızca eşleşen bedenler)
-# - Boyut filtresi: XS–XXXL ve 30–46 aralığı
+# main.py — Railway/Headless (Rev. Sahra • helpers uyumlu)
+# - Helpers (Zara/Bershka) birincil kaynak
+# - Opsiyonel DOM teyidi (REQUIRE_DOM_CONFIRM)
+# - JSON/TEXT fallback sadece helpers boş dönerse
+# - Yalnızca EŞLEŞEN bedenler bildirimi (sade mesaj)
+# - Always-notify / edge-only + Cooldown
 # ============================
 
 import json
@@ -23,12 +20,11 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 
-# Teşhis yardımcıları
 import shutil
 import platform
+import sys, types
 
 # --- [HOTFIX] pygame STUB (headless'ta import kalsın diye) ---
-import sys, types
 if 'pygame' not in sys.modules:
     pygame_stub = types.ModuleType('pygame')
     pygame_stub.mixer = types.SimpleNamespace(init=lambda *a, **k: None)
@@ -36,23 +32,20 @@ if 'pygame' not in sys.modules:
     sys.modules['pygame'] = pygame_stub
 # --- HOTFIX SONU ---
 
-# Helper import (scraperHelpers.py içinde)
+# Helpers (Zara/Bershka)
 try:
     from scraperHelpers import check_stock_zara, check_stock_bershka
 except ModuleNotFoundError:
     from scraperHelpers import check_stock_zara, check_stock_bershka
 
 # -----------------------------
-# 0) LOGGING
+# LOGGING
 # -----------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
 # -----------------------------
-# 1) CONFIG YÜKLEME
+# CONFIG
 # -----------------------------
 with open("config.json", "r", encoding="utf-8") as config_file:
     config = json.load(config_file)
@@ -61,14 +54,13 @@ urls_to_check     = config["urls"]
 sleep_min_seconds = config.get("sleep_min_seconds", 30)
 sleep_max_seconds = config.get("sleep_max_seconds", 90)
 
-# Son durum & cooldown saatleri
-last_status = {item["url"]: None for item in urls_to_check}  # YOK/VAR edge takibi
-next_allowed = {item["url"]: 0 for item in urls_to_check}    # cooldown zaman damgası (epoch sn)
+last_status  = {item["url"]: None for item in urls_to_check}  # YOK/VAR edge takibi
+next_allowed = {item["url"]: 0 for item in urls_to_check}     # cooldown epoch sn
 
 # -----------------------------
-# 2) ENV / TELEGRAM
+# ENV
 # -----------------------------
-load_dotenv()  # .env varsa da oku (Railway Variables önceliklidir)
+load_dotenv()
 
 BOT_API  = os.getenv("BOT_API", "").strip()
 CHAT_ID  = os.getenv("CHAT_ID", "").strip()
@@ -78,20 +70,20 @@ TELEGRAM_TEST_ON_START = os.getenv("TELEGRAM_TEST_ON_START", "false").strip().lo
 TELEGRAM_DIAG = os.getenv("TELEGRAM_DIAG", "0").strip().lower() in ("1","true","yes","on")
 
 ALWAYS_NOTIFY_ON_TRUE = os.getenv("ALWAYS_NOTIFY_ON_TRUE", "0").strip().lower() in ("1","true","yes","on")
-NOTIFY_EMPTY_RAW = os.getenv("NOTIFY_EMPTY_RAW", "0").strip().lower() in ("1","true","yes","on")
-COOLDOWN_SECONDS = int(os.getenv("COOLDOWN_SECONDS", "0"))
-PER_URL_DELAY = int(os.getenv("PER_URL_DELAY", "2"))
+NOTIFY_EMPTY_RAW      = os.getenv("NOTIFY_EMPTY_RAW", "0").strip().lower() in ("1","true","yes","on")
+COOLDOWN_SECONDS      = int(os.getenv("COOLDOWN_SECONDS", "0"))
+PER_URL_DELAY         = int(os.getenv("PER_URL_DELAY", "2"))
+REQUIRE_DOM_CONFIRM   = os.getenv("REQUIRE_DOM_CONFIRM", "1").strip().lower() in ("1","true","yes","on")
 
 log.info("TELEGRAM_ENABLED: %s", TELEGRAM_ENABLED)
 
 # -----------------------------
-# 3) TELEGRAM YARDIMCILAR
+# TELEGRAM
 # -----------------------------
 def send_telegram_message(text: str, parse_mode: str | None = None) -> bool:
     if not TELEGRAM_ENABLED:
         log.warning("⚠️ Telegram atlanıyor: BOT_API/CHAT_ID eksik")
         return False
-
     url = f"https://api.telegram.org/bot{BOT_API}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text, "disable_web_page_preview": True}
     if parse_mode:
@@ -99,36 +91,26 @@ def send_telegram_message(text: str, parse_mode: str | None = None) -> bool:
     try:
         r = requests.post(url, data=payload, timeout=10)
         log.info("[TG] status=%s body=%s", r.status_code, r.text[:500])
-        if r.ok:
-            return True
-        log.error("[TG] Gönderim başarısız: %s", r.text)
-        return False
+        return r.ok
     except Exception as e:
         log.exception("[TG] İstisna: %s", e)
         return False
 
-
 def telegram_diag() -> None:
-    if not TELEGRAM_DIAG:
-        return
-    if not TELEGRAM_ENABLED:
-        log.warning("[TG-DIAG] BOT_API/CHAT_ID eksik")
+    if not TELEGRAM_DIAG or not TELEGRAM_ENABLED:
         return
     try:
         me = requests.get(f"https://api.telegram.org/bot{BOT_API}/getMe", timeout=10)
         log.info("[TG-DIAG] getMe %s %s", me.status_code, me.text[:500])
-
-        gc = requests.get(f"https://api.telegram.org/bot{BOT_API}/getChat",
-                          params={"chat_id": CHAT_ID}, timeout=10)
+        gc = requests.get(f"https://api.telegram.org/bot{BOT_API}/getChat", params={"chat_id": CHAT_ID}, timeout=10)
         log.info("[TG-DIAG] getChat %s %s", gc.status_code, gc.text[:500])
-
         ok = send_telegram_message("🔔 Telegram DIAG: bot ayakta (Railway).")
         log.info("[TG-DIAG] test send ok=%s", ok)
     except Exception as e:
         log.exception("[TG-DIAG] İstisna: %s", e)
 
 # -----------------------------
-# 4) TEŞHİS / DRIVER
+# DIAG / DRIVER
 # -----------------------------
 def find_on_path(name: str):
     return shutil.which(name)
@@ -160,6 +142,7 @@ def build_driver():
         "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     )
+    # Anti-bot
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option("useAutomationExtension", False)
@@ -171,19 +154,17 @@ def build_driver():
 
     log.info("[DEBUG] Using SELENIUM MANAGER")
     driver = webdriver.Chrome(options=chrome_options)
-
     try:
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
             "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
         })
     except Exception:
         pass
-
     log.info("[DEBUG] ChromeDriver READY (Selenium Manager)")
     return driver
 
 # -----------------------------
-# 5) NORMALİZASYON + PARSER
+# PARSING / FALLBACK
 # -----------------------------
 def _clean_size_token(s: str) -> str:
     s = (s or "").strip()
@@ -197,15 +178,12 @@ def _clean_size_token(s: str) -> str:
 
 def normalize_found(res):
     def norm_list(lst):
-        out = []
-        seen = set()
+        out, seen = [], set()
         for x in lst:
             t = _clean_size_token(str(x))
             if t and t not in seen:
-                seen.add(t)
-                out.append(t)
+                seen.add(t); out.append(t)
         return out
-
     if isinstance(res, (list, tuple, set)):
         return norm_list(res)
     if isinstance(res, str):
@@ -215,45 +193,22 @@ def normalize_found(res):
         return ["ANY"]
     return []
 
-# --- Boyut filtresi: XS–XXXL ve 30–46 ---
-ALLOWED_ALPHA = {"XXS","XS","S","M","L","XL","XXL","XXXL"}
-
-def filter_sizes_for_app(slist: list[str]) -> list[str]:
-    out, seen = [], set()
-    for s in slist or []:
-        u = (s or "").strip().upper()
-        if not u:
-            continue
-        if u.isdigit():
-            try:
-                n = int(u)
-                if 30 <= n <= 46 and u not in seen:
-                    seen.add(u); out.append(u)
-            except:
-                continue
-        elif u in ALLOWED_ALPHA and u not in seen:
-            seen.add(u); out.append(u)
-    return out
-
-SIZE_TOKEN_RE = re.compile(r"\b(3[0-9]|4[0-9]|xxs|xs|s|m|l|xl|xxl|xxxl)\b", re.I)
+SIZE_TOKEN_RE = re.compile(r"\b(3[0-9]|[1-9][0-9]|xxs|xs|s|m|l|xl|xxl|xxxl)\b", re.I)
 
 def fallback_sizes_from_text(text: str) -> list[str]:
-    tokens = SIZE_TOKEN_RE.findall(text or "")
-    uniq, seen = [], set()
+    tokens, uniq, seen = SIZE_TOKEN_RE.findall(text or ""), [], set()
     for t in tokens:
-        n = t.lower()
-        if n not in seen:
-            seen.add(n)
-            disp = t.upper() if not t.isdigit() else t
-            uniq.append(disp)
+        u = str(t).strip().upper()
+        if u and u not in seen:
+            seen.add(u); uniq.append(u)
     return uniq
 
 def extract_sizes_with_fallback(driver) -> list[str]:
+    # 1) DOM generic (enabled butonlar)
     selector_groups = [
         "[data-qa='size-selector'] button, .product-size-selector button, .size-selector button, li.size button, button.size",
         "button[aria-label*='Beden'], button[aria-label*='Size'], button[aria-label*='Talla']",
     ]
-
     deadline = time.time() + 30
     while time.time() < deadline:
         try:
@@ -264,12 +219,7 @@ def extract_sizes_with_fallback(driver) -> list[str]:
             btns = driver.find_elements("css selector", sel)
             found = []
             for b in btns:
-                txt = (b.text or "").strip()
-                if not txt:
-                    try:
-                        txt = (b.get_attribute("aria-label") or "").strip()
-                    except Exception:
-                        pass
+                txt = (b.text or "").strip() or (b.get_attribute("aria-label") or "").strip()
                 cls = (b.get_attribute("class") or "").lower()
                 aria = (b.get_attribute("aria-disabled") or "").lower()
                 disabled = ("disabled" in cls) or (aria == "true")
@@ -279,6 +229,7 @@ def extract_sizes_with_fallback(driver) -> list[str]:
                 return normalize_found(found)
         time.sleep(1.0)
 
+    # 2) JSON içi arama
     sizes = set()
     scripts = driver.find_elements("css selector", "script")
     for s in scripts:
@@ -291,20 +242,45 @@ def extract_sizes_with_fallback(driver) -> list[str]:
         if not any(k in blob for k in ["sizes", "availability", "variants", "skus", "inStock", "stock"]):
             continue
 
-        for m in re.finditer(r'"(size|name)"\s*:\s*"([^"]{1,6})".{0,120}?"(availability|inStock)"\s*:\s*(true|"inStock")',
+        for m in re.finditer(r'"(size|name)"\s*:\s*"([^"]{1,12})".{0,200}?"(availability|inStock)"\s*:\s*(true|"inStock")',
                              blob, re.IGNORECASE | re.DOTALL):
             sizes.add(m.group(2))
-        for m in re.finditer(r'"(value|sizeCode|sizeId)"\s*:\s*"([^"]{1,6})".{0,120}?"(availability|inStock)"\s*:\s*(true|"inStock")',
+        for m in re.finditer(r'"(value|sizeCode|sizeId)"\s*:\s*"([^"]{1,12})".{0,200}?"(availability|inStock)"\s*:\s*(true|"inStock")',
                              blob, re.IGNORECASE | re.DOTALL):
             sizes.add(m.group(2))
 
     if sizes:
         return normalize_found(list(sizes))
 
+    # 3) TEXT
     return fallback_sizes_from_text(driver.page_source or "")
 
+# Zara: DOM'da gerçekten aktif (enabled) butonlardan beden listesi
+def zara_get_enabled_sizes(driver) -> list[str]:
+    selectors = [
+        "[data-qa='size-selector'] button",
+        ".product-size-selector button",
+        ".size-selector button",
+        "li.size button",
+        "button.size",
+    ]
+    sizes = []
+    for sel in selectors:
+        try:
+            btns = driver.find_elements("css selector", sel)
+            for b in btns:
+                txt = (b.text or "").strip() or (b.get_attribute("aria-label") or "").strip()
+                cls = (b.get_attribute("class") or "").lower()
+                aria = (b.get_attribute("aria-disabled") or "").lower()
+                disabled = ("disabled" in cls) or (aria == "true")
+                if txt and not disabled:
+                    sizes.append(txt)
+        except Exception:
+            pass
+    return normalize_found(sizes)
+
 # -----------------------------
-# 6) KARAR & BİLDİRİM
+# KARAR & BİLDİRİM
 # -----------------------------
 def _norm_size(x: str) -> str:
     return (x or "").strip().casefold()
@@ -319,6 +295,7 @@ def decide_and_notify(url: str,
                       always_notify_on_true: bool,
                       now_ts: int,
                       cooldown_seconds: int) -> bool:
+    """wanted boş DEĞİLSE: yalnızca intersection varsa bildir; wanted boşsa found boş değilse bildir."""
     w = _norm_list(wanted_sizes)
     f = _norm_list(found_sizes)
 
@@ -344,14 +321,14 @@ def decide_and_notify(url: str,
         log.info("[NOTIFY] atlandı: already True & always_notify_on_true=False")
         return False
 
-    # --- SADE MESAJ: sadece eşleşen bedenler ---
-    if intersection:
+    # Mesaj: yalnızca eşleşen bedenleri yaz (wanted varsa)
+    if w:
         match_disp = ", ".join(sorted({x.upper() for x in intersection}))
     else:
         match_disp = ", ".join(sorted({x.upper() for x in f}))
 
     msg = f"🛍️ {match_disp} beden stokta!!!!\nLink: {url}"
-    ok = send_telegram_message(msg, parse_mode=None)
+    ok = send_telegram_message(msg)
 
     if ok and cooldown_seconds > 0:
         next_allowed[url] = now_ts + cooldown_seconds
@@ -359,7 +336,7 @@ def decide_and_notify(url: str,
     return ok
 
 # -----------------------------
-# 7) YARDIMCI: Cookie/Popup kapatma
+# OVERLAY
 # -----------------------------
 def dismiss_overlays(driver):
     selectors = [
@@ -384,14 +361,14 @@ def dismiss_overlays(driver):
             pass
 
 # -----------------------------
-# 8) ANA DÖNGÜ
+# MAIN LOOP
 # -----------------------------
 if __name__ == "__main__":
     if TELEGRAM_TEST_ON_START and TELEGRAM_ENABLED:
         send_telegram_message("✅ Bot çalıştı – Railway başlangıç testi.")
 
     diag()
-    telegram_diag()  # TELEGRAM_DIAG=1 ise token/chat doğrular + test atar
+    telegram_diag()
 
     while True:
         driver = build_driver()
@@ -399,7 +376,7 @@ if __name__ == "__main__":
             for item in urls_to_check:
                 url   = item.get("url")
                 store = item.get("store")
-                sizes = item.get("sizes", [])
+                sizes = item.get("sizes", [])  # takip edilen bedenler (boş=herhangi)
 
                 log.info("--------------------------------")
                 log.info("[DEBUG] GET %s / Sizes=%s", url, sizes)
@@ -415,6 +392,7 @@ if __name__ == "__main__":
                     except Exception:
                         log.warning("[WARN] readyState wait timed out")
 
+                    # 1) Helpers (birincil)
                     if store == "zara":
                         raw = check_stock_zara(driver, sizes)
                     elif store == "bershka":
@@ -423,55 +401,62 @@ if __name__ == "__main__":
                         log.warning("Unknown store, skipping: %s", store)
                         continue
 
-                    log.info("[SCRAPER RAW] store=%s raw=%r", store, raw)
+                    if raw is None:
+                        log.warning("[SCRAPER] helper returned None (error-like), treating as empty")
+                        raw = []
 
                     found_sizes = normalize_found(raw)
+                    log.info("[SCRAPER RAW] store=%s found=%s", store, found_sizes)
 
+                    # 2) Eğer helpers boş ise → fallback dene
                     if not found_sizes:
-                        try:
-                            btns = driver.find_elements(
-                                "css selector",
-                                "[data-qa='size-selector'] button, .size-selector button, .product-size-selector button, button.size, li.size button"
-                            )
-                            fallback_btn = []
-                            for b in btns:
-                                txt = (b.text or "").strip()
-                                cls = (b.get_attribute("class") or "").lower()
-                                aria = (b.get_attribute("aria-disabled") or "").lower()
-                                disabled = ("disabled" in cls) or (aria == "true")
-                                if txt and not disabled:
-                                    fallback_btn.append(txt)
-                            if fallback_btn:
-                                log.info("[FALLBACK BTN] available -> %s", fallback_btn)
-                                found_sizes = normalize_found(fallback_btn)
-                        except Exception as _e:
-                            log.warning("[FALLBACK BTN] error: %s", _e)
+                        json_text_sizes = extract_sizes_with_fallback(driver)
+                        if json_text_sizes:
+                            found_sizes = normalize_found(json_text_sizes)
+                            log.info("[FALLBACK] sizes -> %s", found_sizes)
 
-                    if not found_sizes:
-                        json_sizes = extract_sizes_with_fallback(driver)
-                        if json_sizes:
-                            log.info("[FALLBACK JSON/TEXT] sizes -> %s", json_sizes)
-                            found_sizes = json_sizes
+                    # 3) DOM teyidi (tüm mağazalar için; env ile aç/kapat)
+                    if REQUIRE_DOM_CONFIRM:
+                        enabled_dom = []
 
-                    # --- FİLTRE: XS–XXXL ve 30–46 ---
-                    found_sizes = filter_sizes_for_app(found_sizes)
+                        if store == "zara":
+                            enabled_dom = zara_get_enabled_sizes(driver)
+                        elif store == "bershka":
+                            # İleride destek gelirse buraya eklenebilir
+                            enabled_dom = []  # şu an desteklenmiyor
+                        else:
+                            enabled_dom = []  # bilinmeyen store
 
+                        log.info("[DOM-CONFIRM] enabled_dom_sizes=%s", enabled_dom)
+
+                        # DOM'da aktif hiçbir beden yoksa → stok yok say
+                        if not enabled_dom:
+                            log.info("[DOM-CONFIRM] Aktif beden yok → stok boş sayıldı")
+                            found_sizes = []
+                        else:
+                            upper_dom = {x.upper() for x in enabled_dom}
+                            found_sizes = [s for s in found_sizes if s.upper() in upper_dom]
+
+
+                    # 4) Durum
                     currently_in_stock = bool(found_sizes)
                     was_in_stock       = last_status.get(url)
                     log.info("DEBUG found_sizes=%s was=%s now=%s", found_sizes, was_in_stock, currently_in_stock)
 
-                    # Eşleşme (case-insensitive)
+                    # 5) Yalnızca istenen bedenlerle eşleş
                     upper_sizes = [x.upper() for x in sizes]
                     matched = [s for s in found_sizes if s.upper() in upper_sizes] if sizes else found_sizes[:]
 
+                    # 6) Opsiyonel uyarı
                     now_ts = int(time.time())
                     if NOTIFY_EMPTY_RAW and not found_sizes:
                         send_telegram_message(f"⚠️ Parser boş döndü (muhtemel DOM değişimi):\n{url}")
 
+                    # 7) Bildirim kararı (wanted varsa matched üzerinden)
                     sent = decide_and_notify(
                         url=url,
                         wanted_sizes=sizes,
-                        found_sizes=matched if sizes else found_sizes,
+                        found_sizes=(matched if sizes else found_sizes),
                         was_available=was_in_stock,
                         always_notify_on_true=ALWAYS_NOTIFY_ON_TRUE,
                         now_ts=now_ts,
@@ -481,6 +466,7 @@ if __name__ == "__main__":
                     if not currently_in_stock:
                         log.info("No stock for %s @ %s", (', '.join(sizes) if sizes else '(any)'), url)
 
+                    # 8) State güncelle
                     last_status[url] = currently_in_stock
 
                 except Exception as e:
