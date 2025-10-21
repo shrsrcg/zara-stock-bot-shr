@@ -452,7 +452,6 @@ if __name__ == "__main__":
 
                     # 4) Tüm mağazalar için: DOM'da aktif (enabled) butonlardan beden listesi
                     def zara_get_enabled_sizes(driver) -> list[str]:
-                        """DOM’da aktif (tıklanabilir) bedenleri döndürür. Zara ve benzeri tüm mağazalarda kullanılabilir."""
                         selectors = [
                             "[data-qa='size-selector'] button",
                             ".product-size-selector button",
@@ -486,6 +485,7 @@ if __name__ == "__main__":
                                 pass
 
                         return normalize_found(sizes)
+
 
 
                     # 5) Durum
