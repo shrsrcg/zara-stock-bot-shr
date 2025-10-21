@@ -15,6 +15,7 @@ import re
 import requests
 import logging
 
+
 from dotenv import load_dotenv
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -421,15 +422,35 @@ if __name__ == "__main__":
 
                     found_sizes = normalize_found(raw)
                     log.info("[SCRAPER RAW] store=%s found=%s", store, found_sizes)
+                    
+                    # 2) DOM teyidi (tüm mağazalar için; env ile aç/kapat)
+                    if REQUIRE_DOM_CONFIRM:
+                        enabled_dom = []
 
-                    # 2) Eğer helpers boş ise → fallback dene
+                        if store == "zara":
+                            enabled_dom = zara_get_enabled_sizes(driver)
+                        elif store == "bershka":
+                            enabled_dom = []  # ileride desteklenebilir
+                        else:
+                            enabled_dom = []  # bilinmeyen mağaza
+
+                        log.info("[DOM-CONFIRM] enabled_dom_sizes=%s", enabled_dom)
+
+                        if not enabled_dom:
+                            log.info("[DOM-CONFIRM] Aktif beden yok → stok boş sayıldı")
+                            found_sizes = []
+                        else:
+                            upper_dom = {x.upper() for x in enabled_dom}
+                            found_sizes = [s for s in found_sizes if s.upper() in upper_dom]
+
+                    # 3) Eğer helpers boş ise → fallback dene
                     if not found_sizes:
                         json_text_sizes = extract_sizes_with_fallback(driver)
                         if json_text_sizes:
                             found_sizes = normalize_found(json_text_sizes)
                             log.info("[FALLBACK] sizes -> %s", found_sizes)
 
-                    # 3) Tüm mağazalar için: DOM'da aktif (enabled) butonlardan beden listesi
+                    # 4) Tüm mağazalar için: DOM'da aktif (enabled) butonlardan beden listesi
                     def zara_get_enabled_sizes(driver) -> list[str]:
                         """DOM’da aktif (tıklanabilir) bedenleri döndürür. Zara ve benzeri tüm mağazalarda kullanılabilir."""
                         selectors = [
@@ -467,21 +488,27 @@ if __name__ == "__main__":
                         return normalize_found(sizes)
 
 
-                    # 4) Durum
+                    # 5) Durum
                     currently_in_stock = bool(found_sizes)
                     was_in_stock       = last_status.get(url)
                     log.info("DEBUG found_sizes=%s was=%s now=%s", found_sizes, was_in_stock, currently_in_stock)
+                    
+                    log.info("[DEBUG] wanted_sizes=%s", sizes)
+                    log.info("[DEBUG] found_sizes(after parse)=%s", found_sizes)
+                    log.info("[DEBUG] enabled_dom_sizes=%s", enabled_dom)
+                    log.info("[DEBUG] matched=%s", matched)
 
-                    # 5) Yalnızca istenen bedenlerle eşleş
+
+                    # 6) Yalnızca istenen bedenlerle eşleş
                     upper_sizes = [x.upper() for x in sizes]
                     matched = [s for s in found_sizes if s.upper() in upper_sizes] if sizes else found_sizes[:]
 
-                    # 6) Opsiyonel uyarı
+                    # 7) Opsiyonel uyarı
                     now_ts = int(time.time())
                     if NOTIFY_EMPTY_RAW and not found_sizes:
                         send_telegram_message(f"⚠️ Parser boş döndü (muhtemel DOM değişimi):\n{url}")
 
-                    # 7) Bildirim kararı (wanted varsa matched üzerinden)
+                    # 8) Bildirim kararı (wanted varsa matched üzerinden)
                     sent = decide_and_notify(
                         url=url,
                         wanted_sizes=sizes,
@@ -495,7 +522,7 @@ if __name__ == "__main__":
                     if not currently_in_stock:
                         log.info("No stock for %s @ %s", (', '.join(sizes) if sizes else '(any)'), url)
 
-                    # 8) State güncelle
+                    # 9s) State güncelle
                     last_status[url] = currently_in_stock
 
                 except Exception as e:
