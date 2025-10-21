@@ -255,16 +255,28 @@ def extract_sizes_with_fallback(driver) -> list[str]:
     # 3) TEXT
     return fallback_sizes_from_text(driver.page_source or "")
 
-# Zara: DOM'da gerçekten aktif (enabled) butonlardan beden listesi
-def zara_get_enabled_sizes(driver) -> list[str]:
+# Genel: DOM'da gerçekten aktif (enabled) butonlardan beden listesi
+def get_enabled_size_buttons(driver) -> list[str]:
+    """Sayfada aktif (seçilebilir) beden butonlarını döndürür. Tüm mağazalar için geçerlidir."""
     selectors = [
         "[data-qa='size-selector'] button",
         ".product-size-selector button",
         ".size-selector button",
         "li.size button",
         "button.size",
+        "button[aria-label*='Beden']",
+        "button[aria-label*='Size']",
+        "button[aria-label*='Talla']",
     ]
     sizes = []
+
+    try:
+        # Sayfanın orta-altına kaydır
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.4);")
+        time.sleep(1.5)  # bedenlerin yüklenmesini bekle
+    except Exception:
+        pass
+
     for sel in selectors:
         try:
             btns = driver.find_elements("css selector", sel)
@@ -277,7 +289,9 @@ def zara_get_enabled_sizes(driver) -> list[str]:
                     sizes.append(txt)
         except Exception:
             pass
+
     return normalize_found(sizes)
+
 
 # -----------------------------
 # KARAR & BİLDİRİM
@@ -415,27 +429,42 @@ if __name__ == "__main__":
                             found_sizes = normalize_found(json_text_sizes)
                             log.info("[FALLBACK] sizes -> %s", found_sizes)
 
-                    # 3) DOM teyidi (tüm mağazalar için; env ile aç/kapat)
-                    if REQUIRE_DOM_CONFIRM:
-                        enabled_dom = []
+                    # 3) Tüm mağazalar için: DOM'da aktif (enabled) butonlardan beden listesi
+                    def zara_get_enabled_sizes(driver) -> list[str]:
+                        """DOM’da aktif (tıklanabilir) bedenleri döndürür. Zara ve benzeri tüm mağazalarda kullanılabilir."""
+                        selectors = [
+                            "[data-qa='size-selector'] button",
+                            ".product-size-selector button",
+                            ".size-selector button",
+                            "li.size button",
+                            "button.size",
+                            "button[aria-label*='Beden']",
+                            "button[aria-label*='Size']",
+                            "button[aria-label*='Talla']",
+                        ]
+                        sizes = []
 
-                        if store == "zara":
-                            enabled_dom = zara_get_enabled_sizes(driver)
-                        elif store == "bershka":
-                            # İleride destek gelirse buraya eklenebilir
-                            enabled_dom = []  # şu an desteklenmiyor
-                        else:
-                            enabled_dom = []  # bilinmeyen store
+                        try:
+                            # Scroll edip kısa bekle → geç yüklenen bedenleri yakala
+                            driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.4);")
+                            time.sleep(1.5)
+                        except Exception:
+                            pass
 
-                        log.info("[DOM-CONFIRM] enabled_dom_sizes=%s", enabled_dom)
+                        for sel in selectors:
+                            try:
+                                btns = driver.find_elements("css selector", sel)
+                                for b in btns:
+                                    txt = (b.text or "").strip() or (b.get_attribute("aria-label") or "").strip()
+                                    cls = (b.get_attribute("class") or "").lower()
+                                    aria = (b.get_attribute("aria-disabled") or "").lower()
+                                    disabled = ("disabled" in cls) or (aria == "true")
+                                    if txt and not disabled:
+                                        sizes.append(txt)
+                            except Exception:
+                                pass
 
-                        # DOM'da aktif hiçbir beden yoksa → stok yok say
-                        if not enabled_dom:
-                            log.info("[DOM-CONFIRM] Aktif beden yok → stok boş sayıldı")
-                            found_sizes = []
-                        else:
-                            upper_dom = {x.upper() for x in enabled_dom}
-                            found_sizes = [s for s in found_sizes if s.upper() in upper_dom]
+                        return normalize_found(sizes)
 
 
                     # 4) Durum
