@@ -204,7 +204,42 @@ def fallback_sizes_from_text(text: str) -> list[str]:
             seen.add(u); uniq.append(u)
     return uniq
 
+def zara_get_enabled_sizes(driver) -> list[str]:
+    selectors = [
+        "[data-qa='size-selector'] button",
+        ".product-size-selector button",
+        ".size-selector button",
+        "li.size button",
+        "button.size",
+        "button[aria-label*='Beden']",
+        "button[aria-label*='Size']",
+        "button[aria-label*='Talla']",
+    ]
+    sizes = []
+
+    try:
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.4);")
+        time.sleep(1.5)
+    except Exception:
+        pass
+
+    for sel in selectors:
+        try:
+            btns = driver.find_elements("css selector", sel)
+            for b in btns:
+                txt = (b.text or "").strip() or (b.get_attribute("aria-label") or "").strip()
+                cls = (b.get_attribute("class") or "").lower()
+                aria = (b.get_attribute("aria-disabled") or "").lower()
+                disabled = ("disabled" in cls) or (aria == "true")
+                if txt and not disabled:
+                    sizes.append(txt)
+        except Exception:
+            pass
+
+    return normalize_found(sizes)
+
 def extract_sizes_with_fallback(driver) -> list[str]:
+    
     # 1) DOM generic (enabled butonlar)
     selector_groups = [
         "[data-qa='size-selector'] button, .product-size-selector button, .size-selector button, li.size button, button.size",
@@ -449,46 +484,9 @@ if __name__ == "__main__":
                         if json_text_sizes:
                             found_sizes = normalize_found(json_text_sizes)
                             log.info("[FALLBACK] sizes -> %s", found_sizes)
+                            
 
-                    # 4) Tüm mağazalar için: DOM'da aktif (enabled) butonlardan beden listesi
-                    def zara_get_enabled_sizes(driver) -> list[str]:
-                        selectors = [
-                            "[data-qa='size-selector'] button",
-                            ".product-size-selector button",
-                            ".size-selector button",
-                            "li.size button",
-                            "button.size",
-                            "button[aria-label*='Beden']",
-                            "button[aria-label*='Size']",
-                            "button[aria-label*='Talla']",
-                        ]
-                        sizes = []
-
-                        try:
-                            # Scroll edip kısa bekle → geç yüklenen bedenleri yakala
-                            driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.4);")
-                            time.sleep(1.5)
-                        except Exception:
-                            pass
-
-                        for sel in selectors:
-                            try:
-                                btns = driver.find_elements("css selector", sel)
-                                for b in btns:
-                                    txt = (b.text or "").strip() or (b.get_attribute("aria-label") or "").strip()
-                                    cls = (b.get_attribute("class") or "").lower()
-                                    aria = (b.get_attribute("aria-disabled") or "").lower()
-                                    disabled = ("disabled" in cls) or (aria == "true")
-                                    if txt and not disabled:
-                                        sizes.append(txt)
-                            except Exception:
-                                pass
-
-                        return normalize_found(sizes)
-
-
-
-                    # 5) Durum
+                    # 4) Durum
                     currently_in_stock = bool(found_sizes)
                     was_in_stock       = last_status.get(url)
                     log.info("DEBUG found_sizes=%s was=%s now=%s", found_sizes, was_in_stock, currently_in_stock)
@@ -499,16 +497,16 @@ if __name__ == "__main__":
                     log.info("[DEBUG] matched=%s", matched)
 
 
-                    # 6) Yalnızca istenen bedenlerle eşleş
+                    # 5) Yalnızca istenen bedenlerle eşleş
                     upper_sizes = [x.upper() for x in sizes]
                     matched = [s for s in found_sizes if s.upper() in upper_sizes] if sizes else found_sizes[:]
 
-                    # 7) Opsiyonel uyarı
+                    # 6) Opsiyonel uyarı
                     now_ts = int(time.time())
                     if NOTIFY_EMPTY_RAW and not found_sizes:
                         send_telegram_message(f"⚠️ Parser boş döndü (muhtemel DOM değişimi):\n{url}")
 
-                    # 8) Bildirim kararı (wanted varsa matched üzerinden)
+                    # 7) Bildirim kararı (wanted varsa matched üzerinden)
                     sent = decide_and_notify(
                         url=url,
                         wanted_sizes=sizes,
@@ -522,7 +520,7 @@ if __name__ == "__main__":
                     if not currently_in_stock:
                         log.info("No stock for %s @ %s", (', '.join(sizes) if sizes else '(any)'), url)
 
-                    # 9s) State güncelle
+                    # 8) State güncelle
                     last_status[url] = currently_in_stock
 
                 except Exception as e:
