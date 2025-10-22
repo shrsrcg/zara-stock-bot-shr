@@ -482,7 +482,7 @@ if __name__ == "__main__":
                     enabled_dom_sizes = get_enabled_size_buttons(driver)
                     log.info("[DOM-CONFIRM] enabled_dom_sizes=%s", enabled_dom_sizes)
 
-                    # === Eğer helpers boş ise → fallback dene ama sadece DOM teyidi varsa ===
+                    # Eğer helpers boş ise → fallback dene ama sadece DOM teyidi varsa
                     if not found_sizes:
                         if not REQUIRE_DOM_CONFIRM or enabled_dom_sizes:
                             json_text_sizes = extract_sizes_with_fallback(driver)
@@ -490,16 +490,11 @@ if __name__ == "__main__":
                                 found_sizes = normalize_found(json_text_sizes)
                                 log.info("[FALLBACK] sizes -> %s", found_sizes)
 
-                    # Eğer fallback'ten dolduysa ama DOM'dan aktif beden bulunamadıysa, mesaj gönderme!
-                    if REQUIRE_DOM_CONFIRM and not enabled_dom_sizes:
-                        log.warning("[SKIP] Fallback ile beden bulundu ama DOM onayı yok → bildirim atlanıyor")
-                        found_sizes = []  # bildirimi tamamen engelle
-
-                    # === 5) DOM teyidiyle found_sizes'i filtrele ===
+                    # DOM teyidi gerekiyorsa, fallback'i DOM ile filtrele
                     if REQUIRE_DOM_CONFIRM:
                         if not enabled_dom_sizes:
-                            log.warning("[BLOCKED] DOM onayı yapılamadı (aktif beden butonu bulunamadı). Bildirim iptal edilecek.")
-                            found_sizes = []  # fallback listesini tamamen iptal ediyoruz!
+                            log.warning("[BLOCKED] DOM onayı yapılamadı (aktif beden butonu yok). Bildirim iptal.")
+                            found_sizes = []  # fallback'i iptal et
                         else:
                             upper_dom = {x.upper() for x in enabled_dom_sizes}
                             found_sizes = [s for s in found_sizes if s.upper() in upper_dom]
