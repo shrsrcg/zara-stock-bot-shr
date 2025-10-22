@@ -121,7 +121,10 @@ def check_stock_zara(driver, sizes_to_check):
                 # Net pozitif sinyaller:
                 qa_in = ("size-in-stock" in qa) or ("size-low-on-stock" in qa)
 
-                # Muhafazakâr koşul: QA in-stock/low-on-stock OLMADAN stok demiyoruz.
+                # Muhafazakâr koşul:
+                # - Buton tıklanabilir olacak
+                # - data-qa-action içinde "size-in-stock" veya "size-low-on-stock" olacak
+                # Aksi takdirde, fallback aşamasında bile "stok var" demeyeceğiz.
                 if (not disabled) and qa_in:
                     in_stock.append(size_label)
 
