@@ -478,13 +478,14 @@ if __name__ == "__main__":
                             upper_dom = {x.upper() for x in enabled_dom}
                             found_sizes = [s for s in found_sizes if s.upper() in upper_dom]
 
-                    # 3) Eğer helpers boş ise → fallback dene
+                    # 3) Eğer helpers boş ise → fallback dene ama sadece DOM teyidi varsa
                     if not found_sizes:
-                        json_text_sizes = extract_sizes_with_fallback(driver)
-                        if json_text_sizes:
-                            found_sizes = normalize_found(json_text_sizes)
-                            log.info("[FALLBACK] sizes -> %s", found_sizes)
-                            
+                        if not REQUIRE_DOM_CONFIRM or enabled_dom_sizes:
+                            json_text_sizes = extract_sizes_with_fallback(driver)
+                            if json_text_sizes:
+                                found_sizes = normalize_found(json_text_sizes)
+                                log.info("[FALLBACK] sizes -> %s", found_sizes)
+
                     # DOM aktif buton kontrolü (mutlaka fallback'ten sonra uygulanmalı)
                     enabled_dom_sizes = get_enabled_size_buttons(driver)
                     log.info("[DOM-CONFIRM] enabled_dom_sizes=%s", enabled_dom_sizes)
