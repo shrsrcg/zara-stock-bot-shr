@@ -491,15 +491,15 @@ if __name__ == "__main__":
                     was_in_stock       = last_status.get(url)
                     log.info("DEBUG found_sizes=%s was=%s now=%s", found_sizes, was_in_stock, currently_in_stock)
                     
+                    
+                    # 5) Yalnızca istenen bedenlerle eşleş
+                    upper_sizes = [x.upper() for x in sizes]
+                    matched = [s for s in found_sizes if s.upper() in upper_sizes] if sizes else found_sizes[:]
+                    
                     log.info("[DEBUG] wanted_sizes=%s", sizes)
                     log.info("[DEBUG] found_sizes(after parse)=%s", found_sizes)
                     log.info("[DEBUG] enabled_dom_sizes=%s", enabled_dom)
                     log.info("[DEBUG] matched=%s", matched)
-
-
-                    # 5) Yalnızca istenen bedenlerle eşleş
-                    upper_sizes = [x.upper() for x in sizes]
-                    matched = [s for s in found_sizes if s.upper() in upper_sizes] if sizes else found_sizes[:]
 
                     # 6) Opsiyonel uyarı
                     now_ts = int(time.time())
