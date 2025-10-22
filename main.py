@@ -485,6 +485,20 @@ if __name__ == "__main__":
                             found_sizes = normalize_found(json_text_sizes)
                             log.info("[FALLBACK] sizes -> %s", found_sizes)
                             
+                    # DOM aktif buton kontrolü (mutlaka fallback'ten sonra uygulanmalı)
+                    enabled_dom_sizes = get_enabled_size_buttons(driver)
+                    log.info("[DOM-CONFIRM] enabled_dom_sizes=%s", enabled_dom_sizes)
+
+                    if REQUIRE_DOM_CONFIRM:
+                        if not enabled_dom_sizes:
+                            log.warning("[BLOCKED] DOM onayı yapılamadı (aktif beden butonu bulunamadı). Bildirim iptal edilecek.")
+                            found_sizes = []  # fallback listesini tamamen iptal ediyoruz!
+                        else:
+                            upper_dom = {x.upper() for x in enabled_dom_sizes}
+                            found_sizes = [s for s in found_sizes if s.upper() in upper_dom]
+                            log.info("[DOM-CONFIRM] Kesilen beden listesi (DOM ile eşleşen): %s", found_sizes)
+
+                            
 
                     # 4) Durum
                     currently_in_stock = bool(found_sizes)
