@@ -83,19 +83,23 @@ def check_stock_zara(driver, sizes_to_check):
             try:
                 found = driver.find_elements(By.CSS_SELECTOR, sel)
                 if found:
+                    print(f"[DEBUG] Selector '{sel}' ile {len(found)} buton bulundu")
                     buttons = found
                     break
-            except Exception:
+            except Exception as e:
+                print(f"[DEBUG] Selector '{sel}' hata: {e}")
                 continue
 
         # Eğer hala bulamadıysak, daha genel arama
         if not buttons:
+            print("[DEBUG] Selector'lar başarısız, genel arama başlatılıyor")
             # Scroll daha aşağıya
             try:
                 driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.5);")
                 time.sleep(1.5)
                 # Tüm butonları al ve kendimiz filtreleyelim
                 all_buttons = driver.find_elements(By.CSS_SELECTOR, "button")
+                print(f"[DEBUG] Sayfada toplam {len(all_buttons)} buton var")
                 buttons = []
                 for btn in all_buttons:
                     txt = _safe_text(btn).upper()
@@ -112,10 +116,12 @@ def check_stock_zara(driver, sizes_to_check):
                     
                     if is_size:
                         disabled = ("disabled" in cls) or (aria_disabled == "true") or (btn.get_attribute("disabled") is not None)
+                        print(f"[DEBUG] Beden bulundu: {txt}, disabled={disabled}")
                         if not disabled:
                             buttons.append(btn)
-            except Exception:
-                pass
+                print(f"[DEBUG] Genel aramada {len(buttons)} enabled beden bulundu")
+            except Exception as e:
+                print(f"[DEBUG] Genel arama hatası: {e}")
 
         if not buttons:
             return []
