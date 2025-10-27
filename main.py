@@ -458,83 +458,82 @@ if __name__ == "__main__":
                     found_sizes = normalize_found(raw)
                     log.info("[SCRAPER RAW] store=%s found=%s", store, found_sizes)
                     
-                    # 2) DOM teyidi (tüm mağazalar için; env ile aç/kapat)
+                    # 2) DOM teyidi (REQUIRE_DOM_CONFIRM kontrolü ile)
+                    enabled_dom_sizes = []
                     if REQUIRE_DOM_CONFIRM:
-                        enabled_dom = []
-
                         if store == "zara":
-                            enabled_dom = zara_get_enabled_sizes(driver)
+                            enabled_dom_sizes = zara_get_enabled_sizes(driver)
                         elif store == "bershka":
-                            enabled_dom = []  # ileride desteklenebilir
+                            # Bershka için dom kontrolü için aynı genel fonksiyonu kullan
+                            enabled_dom_sizes = get_enabled_size_buttons(driver)
                         else:
-                            enabled_dom = []  # bilinmeyen mağaza
-
-                        log.info("[DOM-CONFIRM] enabled_dom_sizes=%s", enabled_dom)
-
-                        if not enabled_dom:
-                            log.info("[DOM-CONFIRM] Aktif beden yok → stok boş sayıldı")
-                            found_sizes = []
-                        else:
-                            upper_dom = {x.upper() for x in enabled_dom}
-                            found_sizes = [s for s in found_sizes if s.upper() in upper_dom]
-
-                    # 3) DOM aktif buton kontrolü ===
-                    enabled_dom_sizes = get_enabled_size_buttons(driver)
-                    log.info("[DOM-CONFIRM] enabled_dom_sizes=%s", enabled_dom_sizes)
-
-                    # Eğer helpers boş ise → fallback dene ama sadece DOM teyidi varsa
-                    if not found_sizes:
-                        if not REQUIRE_DOM_CONFIRM or enabled_dom_sizes:
-                            json_text_sizes = extract_sizes_with_fallback(driver)
-                            if json_text_sizes:
-                                found_sizes = normalize_found(json_text_sizes)
-                                log.info("[FALLBACK] sizes -> %s", found_sizes)
-
-                    # DOM teyidi gerekiyorsa, fallback'i DOM ile filtrele
-                    if REQUIRE_DOM_CONFIRM:
-                        if not enabled_dom_sizes:
-                            log.warning("[BLOCKED] DOM onayı yapılamadı (aktif beden butonu yok). Bildirim iptal.")
-                            found_sizes = []  # fallback'i iptal et
-                        else:
+                            enabled_dom_sizes = get_enabled_size_buttons(driver)
+                        
+                        log.info("[DOM-CONFIRM] enabled_dom_sizes=%s", enabled_dom_sizes)
+                        
+                        # DOM'da aktif beden varsa, helpers sonucunu filtrele
+                        if enabled_dom_sizes:
                             upper_dom = {x.upper() for x in enabled_dom_sizes}
                             found_sizes = [s for s in found_sizes if s.upper() in upper_dom]
-                            log.info("[DOM-CONFIRM] Kesilen beden listesi (DOM ile eşleşen): %s", found_sizes)
+                            log.info("[DOM-CONFIRM] Filtrelenmiş found_sizes=%s", found_sizes)
+                        else:
+                            log.info("[DOM-CONFIRM] Aktif beden yok → stok boş sayıldı")
+                            found_sizes = []
 
-                    # 4) Durum
-                    currently_in_stock = bool(found_sizes)
-                    was_in_stock       = last_status.get(url)
-                    log.info("DEBUG found_sizes=%s was=%s now=%s", found_sizes, was_in_stock, currently_in_stock)
-                    
-                    # 5) Yalnızca istenen bedenlerle eşleş
-                    upper_sizes = [x.upper() for x in sizes]
-                    matched = [s for s in found_sizes if s.upper() in upper_sizes] if sizes else found_sizes[:]
-                    
-                    log.info("[DEBUG] wanted_sizes=%s", sizes)
-                    log.info("[DEBUG] found_sizes(after parse)=%s", found_sizes)
-                    log.info("[DEBUG] enabled_dom_sizes=%s", enabled_dom_sizes)
-                    log.info("[DEBUG] matched=%s", matched)
+                    # 3) Fallback (sadece helpers boşsa ve DOM teyidi kapalıysa veya DOM aktif beden varsa)
+                    if not found_sizes and (not REQUIRE_DOM_CONFIRM or enabled_dom_sizes):
+                        json_text_sizes = extract_sizes_with_fallback(driver)
+                        if json_text_sizes:
+                            found_sizes = normalize_found(json_text_sizes)
+                            log.info("[FALLBACK] sizes -> %s", found_sizes)
+                            
+                            # Fallback sonrası DOM teyidi (eğer aktifse)
+                            if REQUIRE_DOM_CONFIRM and enabled_dom_sizes:
+                                upper_dom = {x.upper() for x in enabled_dom_sizes}
+                                found_sizes = [s for s in found_sizes if s.upper() in upper_dom]
+                                log.info("[DOM-CONFIRM] Fallback filtrelenmiş: %s", found_sizes)
 
-                    # 6) Opsiyonel uyarı
+                    # 4) Durum belirleme ve loglama
+                    was_in_stock = last_status.get(url)
+                    
+                    # Eşleşen bedenleri hesapla
+                    # Eğer wanted_sizes varsa, sadece onlarla eşleşenleri kullan
+                    # Eğer wanted_sizes boşsa, tüm found_sizes'ı kullan
+                    if sizes:
+                        upper_sizes = {s.upper() for s in sizes}
+                        matched = [s for s in found_sizes if s.upper() in upper_sizes]
+                    else:
+                        matched = found_sizes[:]
+                    
+                    currently_in_stock = bool(matched)
+                    
+                    log.info("[FINAL] wanted_sizes=%s", sizes)
+                    log.info("[FINAL] found_sizes=%s", found_sizes)
+                    log.info("[FINAL] enabled_dom_sizes=%s", enabled_dom_sizes)
+                    log.info("[FINAL] matched=%s", matched)
+                    log.info("[FINAL] was=%s now=%s", was_in_stock, currently_in_stock)
+
+                    # 5) Opsiyonel uyarı (helpers boşsa)
                     now_ts = int(time.time())
                     if NOTIFY_EMPTY_RAW and not found_sizes:
                         send_telegram_message(f"⚠️ Parser boş döndü (muhtemel DOM değişimi):\n{url}")
 
-                    # 7) Bildirim kararı (wanted varsa matched üzerinden)
+                    # 6) Bildirim kararı
                     sent = decide_and_notify(
                         url=url,
                         wanted_sizes=sizes,
-                        found_sizes=(matched if sizes else found_sizes),
+                        found_sizes=matched,  # Her zaman matched kullan
                         was_available=was_in_stock,
                         always_notify_on_true=ALWAYS_NOTIFY_ON_TRUE,
                         now_ts=now_ts,
                         cooldown_seconds=COOLDOWN_SECONDS
                     )
 
+                    # 7) Durum güncelle
+                    last_status[url] = currently_in_stock
+                    
                     if not currently_in_stock:
                         log.info("No stock for %s @ %s", (', '.join(sizes) if sizes else '(any)'), url)
-
-                    # 8) State güncelle
-                    last_status[url] = currently_in_stock
 
                 except Exception as e:
                     log.exception("[ERROR] URL %s hata: %s", url, e)
