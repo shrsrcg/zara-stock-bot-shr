@@ -476,22 +476,27 @@ if __name__ == "__main__":
                             upper_dom = {x.upper() for x in enabled_dom_sizes}
                             found_sizes = [s for s in found_sizes if s.upper() in upper_dom]
                             log.info("[DOM-CONFIRM] Filtrelenmiş found_sizes=%s", found_sizes)
-                        else:
-                            log.info("[DOM-CONFIRM] Aktif beden yok → stok boş sayıldı")
-                            found_sizes = []
 
-                    # 3) Fallback (sadece helpers boşsa ve DOM teyidi kapalıysa veya DOM aktif beden varsa)
-                    if not found_sizes and (not REQUIRE_DOM_CONFIRM or enabled_dom_sizes):
+                    # 3) Fallback (sadece helpers boşsa)
+                    if not found_sizes:
+                        log.info("[FALLBACK] Helpers boş → fallback deneniyor")
                         json_text_sizes = extract_sizes_with_fallback(driver)
                         if json_text_sizes:
                             found_sizes = normalize_found(json_text_sizes)
-                            log.info("[FALLBACK] sizes -> %s", found_sizes)
+                            log.info("[FALLBACK] Raw fallback sizes -> %s", found_sizes)
                             
-                            # Fallback sonrası DOM teyidi (eğer aktifse)
+                            # DOM teyidi açık ve DOM verisi varsa → filtrele
                             if REQUIRE_DOM_CONFIRM and enabled_dom_sizes:
                                 upper_dom = {x.upper() for x in enabled_dom_sizes}
                                 found_sizes = [s for s in found_sizes if s.upper() in upper_dom]
                                 log.info("[DOM-CONFIRM] Fallback filtrelenmiş: %s", found_sizes)
+                            
+                            # DOM teyidi açık ama DOM boş → şüpheli veri
+                            elif REQUIRE_DOM_CONFIRM and not enabled_dom_sizes:
+                                log.warning("[DOM-CONFIRM] Fallback sonucu var ama DOM boş! Yanlış pozitif riski var.")
+                                # Fallback'i kullanmaya devam et (ama dikkatli ol)
+                                if NOTIFY_EMPTY_RAW:
+                                    send_telegram_message(f"⚠️ DOM doğrulaması başarısız, fallback kullanıldı:\n{url}\nFallback sizes: {', '.join(found_sizes)}")
 
                     # 4) Durum belirleme ve loglama
                     was_in_stock = last_status.get(url)
