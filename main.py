@@ -265,7 +265,7 @@ def extract_sizes_with_fallback(driver) -> list[str]:
                 return normalize_found(found)
         time.sleep(1.0)
 
-    # 2) JSON içi arama
+    # 2) JSON içi arama (sadece stock=true olanlar)
     sizes = set()
     scripts = driver.find_elements("css selector", "script")
     for s in scripts:
@@ -278,10 +278,13 @@ def extract_sizes_with_fallback(driver) -> list[str]:
         if not any(k in blob for k in ["sizes", "availability", "variants", "skus", "inStock", "stock"]):
             continue
 
-        for m in re.finditer(r'"(size|name)"\s*:\s*"([^"]{1,12})".{0,200}?"(availability|inStock)"\s*:\s*(true|"inStock")',
+        # Sadece inStock=true olan bedenleri al
+        for m in re.finditer(r'"(size|name|sizeCode|value|sizeId)"\s*:\s*"([^"]{1,12})".{0,500}?"(availability|inStock)"\s*:\s*(true|"inStock"|"available")',
                              blob, re.IGNORECASE | re.DOTALL):
             sizes.add(m.group(2))
-        for m in re.finditer(r'"(value|sizeCode|sizeId)"\s*:\s*"([^"]{1,12})".{0,200}?"(availability|inStock)"\s*:\s*(true|"inStock")',
+        
+        # Zara özel data-qa-action kontrolü
+        for m in re.finditer(r'"(size|name|sizeCode|value|sizeId)"\s*:\s*"([^"]{1,12})".{0,500}?"data-qa-action"\s*:\s*"[^"]*size-in-stock[^"]*"',
                              blob, re.IGNORECASE | re.DOTALL):
             sizes.add(m.group(2))
 
