@@ -491,12 +491,12 @@ if __name__ == "__main__":
                                 found_sizes = [s for s in found_sizes if s.upper() in upper_dom]
                                 log.info("[DOM-CONFIRM] Fallback filtrelenmiş: %s", found_sizes)
                             
-                            # DOM teyidi açık ama DOM boş → şüpheli veri
+                            # DOM teyidi açık ama DOM boş → şüpheli veri, KULLANMA!
                             elif REQUIRE_DOM_CONFIRM and not enabled_dom_sizes:
-                                log.warning("[DOM-CONFIRM] Fallback sonucu var ama DOM boş! Yanlış pozitif riski var.")
-                                # Fallback'i kullanmaya devam et (ama dikkatli ol)
+                                log.warning("[DOM-CONFIRM] Fallback sonucu var ama DOM boş! Fallback iptal edildi (yanlış pozitif riski).")
+                                found_sizes = []  # ❌ KULLANMA! Yanlış pozitif riski
                                 if NOTIFY_EMPTY_RAW:
-                                    send_telegram_message(f"⚠️ DOM doğrulaması başarısız, fallback kullanıldı:\n{url}\nFallback sizes: {', '.join(found_sizes)}")
+                                    send_telegram_message(f"⚠️ DOM doğrulaması başarısız, fallback reddedildi:\n{url}")
 
                     # 4) Durum belirleme ve loglama
                     was_in_stock = last_status.get(url)
