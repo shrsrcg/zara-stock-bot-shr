@@ -140,15 +140,10 @@ def check_stock_zara(driver, sizes_to_check):
                 qa = (b.get_attribute("data-qa-action") or "").lower()
                 disabled = ("disabled" in cls) or (aria == "true") or (b.get_attribute("disabled") is not None)
 
-                # Stok kontrolü: Sadece disabled OLMAYAN + (data-qa-action'da "in-stock" varsa VEYA boş yoksa)
-                # Muhafazakâr yaklaşım: Disabled değilse ve data-qa-action'da "in-stock" VEYA boş değilse
-                if not disabled:
-                    # Eğer qa-action varsa, kontrol et
-                    if qa and ("in-stock" in qa or "low-on-stock" in qa):
-                        in_stock.append(size_label)
-                    elif not qa:
-                        # qa-action yoksa, sadece disabled değilse kabul et (daha riskli)
-                        in_stock.append(size_label)
+                # Stok kontrolü: SADECE data-qa-action'da "in-stock" veya "low-on-stock" varsa kabul et
+                # Muhafazakâr yaklaşım: Disabled değilse VE data-qa-action'da açıkça "in-stock" varsa
+                if not disabled and qa and ("in-stock" in qa or "low-on-stock" in qa):
+                    in_stock.append(size_label)
 
             except StaleElementReferenceException:
                 continue
