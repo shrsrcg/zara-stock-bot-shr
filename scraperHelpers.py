@@ -45,48 +45,75 @@ def check_stock_zara(driver, sizes_to_check):
     Çıktı  : stokta bulunan bedenler (list[str]); yoksa [].
     Hata   : None
     Notlar :
-      - SADECE gerçekten tıklanabilir (enabled) + QA action'ı "in-stock"/"low-on-stock"
-        olan bedenler "stok var" sayılır.
-      - 'qa_action' boşsa ARTIK stok varsaymıyoruz (yalancı pozitifleri engeller).
+      - SADECE gerçekten tıklanabilir (enabled) butonlar "stok var" sayılır.
       - Eşleşme case-insensitive yapılır.
     """
     try:
-        wait = WebDriverWait(driver, 25)
+        # Sayfayı biraz kaydır (bedenlerin yüklenmesi için)
+        try:
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.35);")
+            time.sleep(1.5)
+        except Exception:
+            pass
 
-        # Beden konteynerini bekle (çeşitli varyantlar)
-        container_locators = [
-            (By.CSS_SELECTOR, ".size-selector-sizes"),
-            (By.CSS_SELECTOR, "[data-qa-qualifier='size-selector-sizes']"),
-            (By.CSS_SELECTOR, "[data-qa='size-selector']"),
-        ]
-
-        found_container = False
-        for loc in container_locators:
-            try:
-                wait.until(EC.presence_of_element_located(loc))
-                found_container = True
-                break
-            except TimeoutException:
-                continue
-        if not found_container:
-            return []
-
-        # Buton havuzu (farklı şablonlar için geniş seçim)
+        # AGGRESİF SELECTOR'LAR - Tüm olası Zara yapıları
         button_selectors = [
-            "[data-qa='size-selector'] button",
-            ".size-selector-sizes .size-selector-sizes-size__button",
-            ".size-selector button",
-            "li.size button",
-            "button.size",
+            # Modern Zara
+            "button[data-qa-action*='in-stock']",
+            "button[data-qa-action*='low-on-stock']", 
+            "[data-qa='size-selector'] button:not([aria-disabled='true']):not([disabled])",
+            ".size-selector-sizes button:not([aria-disabled='true'])",
+            "[data-qa-qualifier*='size'] button:not([disabled])",
+            
+            # Genel buton selectorlar (enabled olanları filtrele)
+            "button.size:not([disabled]):not([aria-disabled='true'])",
+            "li button:not([disabled])",
+            ".product-detail-size button:not([disabled])",
+            
+            # Data attribute'ları ile
+            "button[data-qa*='size']:not([disabled])",
+            "button[aria-label*='Size']:not([aria-disabled='true'])",
+            "button[aria-label*='Beden']:not([aria-disabled='true'])",
         ]
+        
         buttons = []
         for sel in button_selectors:
             try:
-                buttons = driver.find_elements(By.CSS_SELECTOR, sel)
-                if buttons:
+                found = driver.find_elements(By.CSS_SELECTOR, sel)
+                if found:
+                    buttons = found
                     break
             except Exception:
                 continue
+
+        # Eğer hala bulamadıysak, daha genel arama
+        if not buttons:
+            # Scroll daha aşağıya
+            try:
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.5);")
+                time.sleep(1.5)
+                # Tüm butonları al ve kendimiz filtreleyelim
+                all_buttons = driver.find_elements(By.CSS_SELECTOR, "button")
+                buttons = []
+                for btn in all_buttons:
+                    txt = _safe_text(btn).upper()
+                    cls = (btn.get_attribute("class") or "").lower()
+                    aria_disabled = (btn.get_attribute("aria-disabled") or "").lower()
+                    
+                    # Beden pattern'i kontrol et (S, M, L, XS, XL veya sayı 28-50)
+                    is_size = False
+                    if txt and len(txt) <= 3:
+                        if txt in ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL']:
+                            is_size = True
+                        elif txt.isdigit() and 28 <= int(txt) <= 50:
+                            is_size = True
+                    
+                    if is_size:
+                        disabled = ("disabled" in cls) or (aria_disabled == "true") or (btn.get_attribute("disabled") is not None)
+                        if not disabled:
+                            buttons.append(btn)
+            except Exception:
+                pass
 
         if not buttons:
             return []
@@ -99,41 +126,33 @@ def check_stock_zara(driver, sizes_to_check):
             try:
                 size_label = _safe_text(b).upper()
                 if not size_label:
-                    # bazı şablonlarda label ayrı bir span'da
-                    try:
-                        lab = b.find_element(By.CSS_SELECTOR, "[data-qa-qualifier='size-selector-sizes-size-label']")
-                        size_label = _safe_text(lab).upper()
-                    except Exception:
-                        pass
-
-                if not size_label:
                     continue
 
                 # Eğer takip listesi verilmişse, önce onlarla filtrele
                 if wanted and (size_label not in wanted):
                     continue
 
-                cls  = (b.get_attribute("class") or "").lower()
+                # Buton disabled mı kontrol et
+                cls = (b.get_attribute("class") or "").lower()
                 aria = (b.get_attribute("aria-disabled") or "").lower()
-                qa   = (b.get_attribute("data-qa-action") or "").lower()
+                qa = (b.get_attribute("data-qa-action") or "").lower()
                 disabled = ("disabled" in cls) or (aria == "true") or (b.get_attribute("disabled") is not None)
 
-                # Net pozitif sinyaller:
-                qa_in = ("size-in-stock" in qa) or ("size-low-on-stock" in qa)
-
-                # Muhafazakâr koşul:
-                # - Buton tıklanabilir olacak
-                # - data-qa-action içinde "size-in-stock" veya "size-low-on-stock" olacak
-                # Aksi takdirde, fallback aşamasında bile "stok var" demeyeceğiz.
-                if (not disabled) and qa_in:
-                    in_stock.append(size_label)
+                # Stok kontrolü: Sadece disabled OLMAYAN + (data-qa-action'da "in-stock" varsa VEYA boş yoksa)
+                # Muhafazakâr yaklaşım: Disabled değilse ve data-qa-action'da "in-stock" VEYA boş değilse
+                if not disabled:
+                    # Eğer qa-action varsa, kontrol et
+                    if qa and ("in-stock" in qa or "low-on-stock" in qa):
+                        in_stock.append(size_label)
+                    elif not qa:
+                        # qa-action yoksa, sadece disabled değilse kabul et (daha riskli)
+                        in_stock.append(size_label)
 
             except StaleElementReferenceException:
                 continue
             except Exception:
                 continue
 
-        # Tutarlı dönüş
         return in_stock
 
     except Exception as e:
