@@ -51,8 +51,10 @@ def check_stock_zara(driver, sizes_to_check):
     try:
         # Sayfayı biraz kaydır (bedenlerin yüklenmesi için)
         try:
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.35);")
-            time.sleep(1.5)
+            # Birden fazla scroll yap
+            for scroll_ratio in [0.25, 0.35, 0.45]:
+                driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * {scroll_ratio});")
+                time.sleep(2)  # Her scroll sonrası bekle
         except Exception:
             pass
 

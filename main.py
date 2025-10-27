@@ -480,20 +480,9 @@ if __name__ == "__main__":
                             found_sizes = [s for s in found_sizes if s.upper() in upper_dom]
                             log.info("[DOM-CONFIRM] Filtrelenmiş found_sizes=%s", found_sizes)
 
-                    # 3) Fallback (sadece helpers ve DOM boşsa VE REQUIRE_DOM_CONFIRM=0 ise)
-                    if not found_sizes and not REQUIRE_DOM_CONFIRM:
-                        log.warning("[FALLBACK] Fallback devre dışı - REQUIRE_DOM_CONFIRM=1 ve DOM boş. Güvenli değil.")
-                    elif not found_sizes and REQUIRE_DOM_CONFIRM and enabled_dom_sizes:
-                        # DOM varsa ama helpers boşsa → fallback ile tamamla
-                        log.info("[FALLBACK] Helpers boş ama DOM var → fallback deneniyor")
-                        json_text_sizes = extract_sizes_with_fallback(driver)
-                        if json_text_sizes:
-                            found_sizes = normalize_found(json_text_sizes)
-                            log.info("[FALLBACK] Raw fallback sizes -> %s", found_sizes)
-                            # DOM ile filtrele
-                            upper_dom = {x.upper() for x in enabled_dom_sizes}
-                            found_sizes = [s for s in found_sizes if s.upper() in upper_dom]
-                            log.info("[DOM-CONFIRM] Fallback filtrelenmiş: %s", found_sizes)
+                    # 3) Fallback - TAMAMEN KAPALI (güvenlik için)
+                    # Fallback yanlış pozitif riski çok yüksek, kaldırıldı
+                    # Eğer bulmak istiyorsan, helpers'ı çalıştıracak şekilde düzeltmelisin
 
                     # 4) Durum belirleme ve loglama
                     was_in_stock = last_status.get(url)
