@@ -278,21 +278,27 @@ def extract_sizes_with_fallback(driver) -> list[str]:
         if not any(k in blob for k in ["sizes", "availability", "variants", "skus", "inStock", "stock"]):
             continue
 
-        # Sadece inStock=true olan bedenleri al
-        for m in re.finditer(r'"(size|name|sizeCode|value|sizeId)"\s*:\s*"([^"]{1,12})".{0,500}?"(availability|inStock)"\s*:\s*(true|"inStock"|"available")',
+        # Sadece inStock=true olan bedenleri al (DAHA TİTİZ)
+        # Pattern 1: size/name → availability/inStock → true/available
+        for m in re.finditer(r'"(size|name|sizeCode|value)"\s*:\s*"([^"]{1,12})".{0,300}?"(availability|inStock)"\s*:\s*(true|"inStock"|"available"|"in-stock")',
                              blob, re.IGNORECASE | re.DOTALL):
             sizes.add(m.group(2))
         
-        # Zara özel data-qa-action kontrolü
-        for m in re.finditer(r'"(size|name|sizeCode|value|sizeId)"\s*:\s*"([^"]{1,12})".{0,500}?"data-qa-action"\s*:\s*"[^"]*size-in-stock[^"]*"',
+        # Pattern 2: data-qa-action ile
+        for m in re.finditer(r'"(size|name|sizeCode)"\s*:\s*"([^"]{1,12})".{0,300}?"data-qa-action"\s*:\s*"[^"]*size-in-stock[^"]*"',
+                             blob, re.IGNORECASE | re.DOTALL):
+            sizes.add(m.group(2))
+        
+        # Pattern 3: isEnabled, enabled gibi field'lar
+        for m in re.finditer(r'"(size|name|sizeCode|value)"\s*:\s*"([^"]{1,12})".{0,200}?"(isEnabled|enabled)"\s*:\s*true',
                              blob, re.IGNORECASE | re.DOTALL):
             sizes.add(m.group(2))
 
     if sizes:
         return normalize_found(list(sizes))
 
-    # 3) TEXT
-    return fallback_sizes_from_text(driver.page_source or "")
+    # 3) TEXT fallback KAPALI (güvenli değil)
+    return []
 
 # Genel: DOM'da gerçekten aktif (enabled) butonlardan beden listesi
 def get_enabled_size_buttons(driver) -> list[str]:
