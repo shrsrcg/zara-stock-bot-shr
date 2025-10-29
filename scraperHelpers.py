@@ -3,6 +3,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, ElementClickInterceptedException, StaleElementReferenceException
 import time
+import re
 
 def _safe_text(el):
     """Element text'ini güvenli şekilde al (StaleElementReferenceException için)"""
@@ -292,63 +293,100 @@ def check_stock_hm(driver, sizes_to_check):
             print("[DEBUG] H&M wait selector bulunamadı, yine de size element aramaya devam ediliyor...")
             time.sleep(2)  # Yine de biraz bekle
         
-        # Size elementlerini bul - genişletilmiş selector listesi
-        # Analiz sonuçlarına göre: div[id="sizebutton-0"], div[data-testid="sizebutton-0"] formatında
+        # Size elementlerini bul - ANALİZ SONUÇLARINA GÖRE: li > div[id="sizebutton-0"] formatında
+        # ÖNEMLİ: Tüm selector'ları birleştirip tek seferde arama yap (tüm bedenleri bulmak için)
         size_selectors = [
-            "div[id^='sizebutton-']",  # Öncelik: En spesifik
-            "div[data-testid^='sizebutton-']",  # İkinci öncelik
-            "li > div[id^='sizebutton-']",  # li içinde olabilir
-            "li > div[data-testid^='sizebutton-']",
-            "div[role='radio'][aria-label*='beden']",
-            "div[role='radio']",
+            # Öncelik 1: Analiz sonuçlarına göre li içinde olmalı
+            "li > div[id^='sizebutton-'], li > div[data-testid^='sizebutton-']",
+            "li > div[id^='sizeButton-'], li > div[data-testid^='sizeButton-']",  # Case variation
+            "li > div[id*='sizebutton'], li > div[data-testid*='sizebutton']",  # Partial match
+            # Öncelik 2: Direkt div (li olmadan da olabilir)
+            "div[id^='sizebutton-'], div[data-testid^='sizebutton-']",
+            "div[id^='sizeButton-'], div[data-testid^='sizeButton-']",  # Case variation
+            "div[id*='sizebutton'], div[data-testid*='sizebutton']",  # Partial match
+            # Öncelik 3: role='radio' olanlar (tüm varyasyonlar)
+            "div[role='radio'][aria-label*='beden'], div[role='radio'][aria-label*='Beden']",
+            "div[role='radio'][aria-label*='BEDEN']",
             "li div[role='radio']",
-            "div[data-testid*='size']",
-            "*[aria-label*='beden:']",
+            "div[role='radio']",
+            # Öncelik 4: Genel selector'lar
+            "div[data-testid*='size'], div[data-testid*='Size']",
+            "*[aria-label*='beden:'], *[aria-label*='Beden:']",
             "li > div[tabindex='0']",
-            "div[tabindex='0'][role='radio']"
+            "div[tabindex='0'][role='radio']",
+            # Son çare: tüm li elementleri içinde arama
+            "li > div"
         ]
         
-        seen_size_labels = set()  # Tekrar eden bedenleri filtrelemek için
+        # Tüm selector'lardan elementleri topla (tek seferde)
+        all_found_elements = []
+        seen_element_ids = set()  # Duplicate element'leri önlemek için
+        
         for sel in size_selectors:
             try:
                 found = driver.find_elements(By.CSS_SELECTOR, sel)
                 print(f"[DEBUG] H&M selector '{sel}' ile {len(found)} element bulundu")
-                if found:
-                    # Text içerenleri filtrele (gerçek beden elementleri)
-                    # Analiz sonuçlarına göre: div[id^="sizebutton-"] veya div[data-testid^="sizebutton-"]
-                    filtered = []
-                    for el in found:
-                        try:
-                            # İç div[dir="ltr"] elementi bul
-                            text_elem = el.find_element(By.CSS_SELECTOR, "div[dir='ltr']")
-                            text = text_elem.text.strip().replace("\xa0", " ").strip().upper()
-                            if text and (text in ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL'] or (text.isdigit() and 28 <= int(text) <= 50)):
-                                # Tekrar edenleri filtrele
-                                if text not in seen_size_labels:
-                                    seen_size_labels.add(text)
-                                    filtered.append(el)
-                                    print(f"[DEBUG] H&M beden bulundu: '{text}' (element: {el.tag_name}, id: {el.get_attribute('id')}, testid: {el.get_attribute('data-testid')})")
-                        except Exception as inner_e:
-                            # Fallback: direkt textContent
-                            try:
-                                text = el.text.strip().replace("\xa0", " ").strip().upper()
-                                if text and (text in ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL'] or (text.isdigit() and 28 <= int(text) <= 50)):
-                                    if text not in seen_size_labels:
-                                        seen_size_labels.add(text)
-                                        filtered.append(el)
-                                        print(f"[DEBUG] H&M beden bulundu (fallback): '{text}' (element: {el.tag_name}, id: {el.get_attribute('id')})")
-                            except:
-                                pass
+                for el in found:
+                    # Element'in unique ID'sini oluştur
+                    el_id = el.get_attribute("id") or el.get_attribute("data-testid") or ""
+                    el_html = el.get_attribute("outerHTML")[:100] if el.get_attribute("outerHTML") else ""
                     
-                    if filtered:
-                        print(f"[DEBUG] H&M {len(filtered)} benzersiz size element bulundu (selector: {sel})")
-                        size_elements = filtered
-                        break
-                    else:
-                        print(f"[DEBUG] H&M selector '{sel}' element buldu ama filtrelemeden geçmedi")
+                    # Daha önce görmüş mü kontrol et (duplicate önleme)
+                    el_key = f"{el.tag_name}_{el_id}_{el_html[:50]}"
+                    if el_key not in seen_element_ids:
+                        seen_element_ids.add(el_key)
+                        all_found_elements.append(el)
+                        print(f"[DEBUG] H&M yeni element eklendi: {el.tag_name}, id: {el_id}")
             except Exception as e:
                 print(f"[DEBUG] H&M selector '{sel}' hatası: {e}")
                 continue
+        
+        print(f"[DEBUG] H&M toplam {len(all_found_elements)} element toplandı (tüm selector'lardan)")
+        
+        # Şimdi tüm elementleri filtrele
+        seen_size_labels = set()
+        filtered = []
+        
+        for el in all_found_elements:
+            try:
+                # İç div[dir="ltr"] elementi bul (analiz sonuçlarına göre bu içeride beden text'i var)
+                text = None
+                try:
+                    text_elem = el.find_element(By.CSS_SELECTOR, "div[dir='ltr']")
+                    text = text_elem.text.strip().replace("\xa0", " ").strip().upper()
+                except:
+                    # Fallback 1: direkt textContent
+                    try:
+                        text = el.text.strip().replace("\xa0", " ").strip().upper()
+                    except:
+                        pass
+                
+                # Fallback 2: aria-label'dan çıkar
+                if not text or len(text) == 0:
+                    try:
+                        aria_label = el.get_attribute("aria-label") or ""
+                        # "s beden: stokta" formatından "s" çıkar
+                        match = re.search(r'^(\w+)\s*beden', aria_label, re.IGNORECASE)
+                        if match:
+                            text = match.group(1).strip().upper()
+                    except:
+                        pass
+                
+                if text and (text in ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL'] or (text.isdigit() and 28 <= int(text) <= 50)):
+                    # Tekrar edenleri filtrele
+                    if text not in seen_size_labels:
+                        seen_size_labels.add(text)
+                        filtered.append(el)
+                        print(f"[DEBUG] H&M beden bulundu: '{text}' (element: {el.tag_name}, id: {el.get_attribute('id')}, testid: {el.get_attribute('data-testid')}, aria-label: {(el.get_attribute('aria-label') or '')[:50]})")
+            except Exception as inner_e:
+                print(f"[DEBUG] H&M element işlenirken hata: {inner_e}")
+                continue
+        
+        if filtered:
+            print(f"[DEBUG] H&M toplam {len(filtered)} benzersiz size element bulundu: {sorted(seen_size_labels)}")
+            size_elements = filtered
+        else:
+            print(f"[DEBUG] H&M hiçbir element filtrelemeden geçemedi")
 
         if not size_elements:
             print("[DEBUG] H&M size element bulunamadı - tüm selector'lar denendi")
