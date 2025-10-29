@@ -282,6 +282,17 @@ def check_stock_hm(driver, sizes_to_check):
         except:
             pass
         
+        # Sayfa yüklenmesini bekle
+        try:
+            WebDriverWait(driver, 10).until(
+                lambda d: d.execute_script("return document.readyState") == "complete"
+            )
+            # Sayfa yüklenmesi için ek bekleme
+            time.sleep(2)
+            print("[DEBUG] H&M sayfa yüklendi")
+        except:
+            print("[DEBUG] H&M sayfa yükleme beklemesi timeout oldu, devam ediliyor...")
+        
         # Sayfayı kaydır ve dinamik içerik yüklenmesini bekle
         try:
             # İlk scroll
@@ -295,7 +306,7 @@ def check_stock_hm(driver, sizes_to_check):
             time.sleep(2)
             # Yukarı kaydır (size selector genelde yukarıda)
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.2);")
-            time.sleep(1.5)
+            time.sleep(2)  # Biraz daha uzun bekle
             print("[DEBUG] H&M scroll işlemleri tamamlandı")
         except Exception as e:
             print(f"[DEBUG] H&M scroll hatası: {e}")
@@ -906,6 +917,22 @@ def check_stock_stradivarius(driver, sizes_to_check):
                                         size_label = button_text
                             
                             # Debug: bulunan text'i göster
+                            # Fallback 3: Button ID'sinden beden çıkar (örn: product-451624756-size-button-l -> "l")
+                            if not size_label:
+                                try:
+                                    button_id = button.get_attribute("id") or ""
+                                    if button_id and "-size-button-" in button_id:
+                                        # ID formatı: product-XXX-size-button-XXS veya product-XXX-size-button-35
+                                        parts = button_id.split("-size-button-")
+                                        if len(parts) > 1:
+                                            size_from_id = parts[-1].strip().upper()
+                                            # Geçerli beden formatı mı kontrol et
+                                            if size_from_id in ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'] or (size_from_id.isdigit() and 28 <= int(size_from_id) <= 50):
+                                                size_label = size_from_id
+                                                print(f"[DEBUG] Stradivarius beden text bulundu (button id): '{size_label}'")
+                                except:
+                                    pass
+                            
                             if not size_label:
                                 button_html = (button.get_attribute("outerHTML") or "")[:150]
                                 print(f"[DEBUG] Stradivarius button text bulunamadı (html: {button_html}...)")
@@ -961,8 +988,13 @@ def check_stock_stradivarius(driver, sizes_to_check):
                 try:
                     size_div = button.find_element(By.CSS_SELECTOR, "div.sc-hoLldG, div[class*='hoLldG']")
                     size_label = size_div.text.strip().upper()
-                    print(f"[DEBUG] Stradivarius beden text bulundu (div.sc-hoLldG): '{size_label}'")
+                    if size_label:  # Boş olmadığından emin ol
+                        print(f"[DEBUG] Stradivarius beden text bulundu (div.sc-hoLldG): '{size_label}'")
                 except:
+                    pass
+                
+                # Fallback 1: aria-label
+                if not size_label:
                     try:
                         parent_li = button.find_element(By.XPATH, "./ancestor::li[1]")
                         aria_label_raw = parent_li.get_attribute("aria-label") or ""
@@ -974,10 +1006,35 @@ def check_stock_stradivarius(driver, sizes_to_check):
                                 size_label = match.group(1).strip().upper()
                             else:
                                 size_label = aria_label_raw.strip().upper()
-                        print(f"[DEBUG] Stradivarius beden text bulundu (aria-label): '{size_label}'")
+                        if size_label:
+                            print(f"[DEBUG] Stradivarius beden text bulundu (aria-label): '{size_label}'")
                     except:
+                        pass
+                
+                # Fallback 2: button text
+                if not size_label:
+                    try:
                         size_label = button.text.strip().upper()
-                        print(f"[DEBUG] Stradivarius beden text bulundu (button text): '{size_label}'")
+                        if size_label:
+                            print(f"[DEBUG] Stradivarius beden text bulundu (button text): '{size_label}'")
+                    except:
+                        pass
+                
+                # Fallback 3: Button ID'sinden beden çıkar (örn: product-451624756-size-button-l -> "l")
+                if not size_label:
+                    try:
+                        button_id = button.get_attribute("id") or ""
+                        if button_id and "-size-button-" in button_id:
+                            # ID formatı: product-XXX-size-button-XXS veya product-XXX-size-button-35
+                            parts = button_id.split("-size-button-")
+                            if len(parts) > 1:
+                                size_from_id = parts[-1].strip().upper()
+                                # Geçerli beden formatı mı kontrol et
+                                if size_from_id in ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'] or (size_from_id.isdigit() and 28 <= int(size_from_id) <= 50):
+                                    size_label = size_from_id
+                                    print(f"[DEBUG] Stradivarius beden text bulundu (button id): '{size_label}'")
+                    except:
+                        pass
                 
                 if not size_label:
                     print(f"[DEBUG] Stradivarius beden text bulunamadı, button id: {button.get_attribute('id')}")
