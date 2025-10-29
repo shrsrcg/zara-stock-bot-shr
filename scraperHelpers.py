@@ -449,8 +449,13 @@ def check_stock_hm(driver, sizes_to_check):
             print("[DEBUG] H&M size element bulunamadı - tüm selector'lar denendi")
             # Debug: sayfanın HTML'ini kontrol et
             try:
+                # Sayfanın tam yüklenmesini bekle
+                time.sleep(2)
+                
                 page_text = driver.page_source
                 page_lower = page_text.lower()
+                
+                print(f"[DEBUG] H&M sayfa HTML uzunluğu: {len(page_text)} karakter")
                 
                 # Büyük harf formatını kontrol et (analiz sonuçlarına göre: sizeButton-)
                 count_id_capital = page_text.count("id=\"sizeButton-")
@@ -476,14 +481,25 @@ def check_stock_hm(driver, sizes_to_check):
                         print(f"[DEBUG] H&M aria-label'da 'beden' geçen {len(aria_beden_elements)} element var")
                         if aria_beden_elements:
                             # İlk birkaç elementin aria-label'ını göster
-                            for i, el in enumerate(aria_beden_elements[:3]):
+                            for i, el in enumerate(aria_beden_elements[:5]):
                                 try:
                                     aria_val = el.get_attribute("aria-label") or ""
-                                    print(f"[DEBUG] H&M örnek aria-label[{i}]: {aria_val[:100]}")
-                                except:
-                                    pass
+                                    el_tag = el.tag_name
+                                    el_id = el.get_attribute("id") or ""
+                                    print(f"[DEBUG] H&M örnek aria-label[{i}]: tag={el_tag}, id={el_id[:50]}, aria-label={aria_val[:100]}")
+                                    
+                                    # Bu element beden text'i içeriyor mu kontrol et
+                                    if aria_val and ("S " in aria_val or "M " in aria_val or "L " in aria_val or "XL " in aria_val):
+                                        el_text = el.text.strip()[:50]
+                                        print(f"[DEBUG] H&M potansiyel beden elementi [{i}]: text={el_text}")
+                                except Exception as e:
+                                    print(f"[DEBUG] H&M aria-label element[{i}] işlenirken hata: {e}")
+                    else:
+                        print("[DEBUG] H&M HTML'de 'aria-label' ve 'beden' birlikte geçmiyor")
                 except Exception as e:
                     print(f"[DEBUG] H&M aria-label kontrol hatası: {e}")
+                    import traceback
+                    print(f"[DEBUG] H&M aria-label hata detayı: {traceback.format_exc()}")
                 
                 try:
                     if "role=\"radio\"" in page_lower or "role='radio'" in page_lower:
@@ -493,17 +509,43 @@ def check_stock_hm(driver, sizes_to_check):
                         radio_elements = driver.find_elements(By.CSS_SELECTOR, "[role='radio'], [role=\"radio\"]")
                         print(f"[DEBUG] H&M {len(radio_elements)} role='radio' elementi bulundu")
                         if radio_elements:
-                            for i, el in enumerate(radio_elements[:3]):
+                            for i, el in enumerate(radio_elements[:5]):
                                 try:
                                     aria_val = el.get_attribute("aria-label") or ""
                                     el_id = el.get_attribute("id") or ""
-                                    print(f"[DEBUG] H&M örnek radio[{i}]: id={el_id[:50]}, aria-label={aria_val[:80]}")
-                                except:
-                                    pass
+                                    el_tag = el.tag_name
+                                    el_text = el.text.strip()[:50]
+                                    print(f"[DEBUG] H&M örnek radio[{i}]: tag={el_tag}, id={el_id[:50]}, text={el_text}, aria-label={aria_val[:80]}")
+                                except Exception as e:
+                                    print(f"[DEBUG] H&M radio element[{i}] işlenirken hata: {e}")
+                    else:
+                        print("[DEBUG] H&M HTML'de 'role=radio' bulunamadı")
                 except Exception as e:
                     print(f"[DEBUG] H&M role='radio' kontrol hatası: {e}")
+                    import traceback
+                    print(f"[DEBUG] H&M role='radio' hata detayı: {traceback.format_exc()}")
+                
+                # Son çare: Tüm li elementlerini kontrol et
+                try:
+                    all_lis = driver.find_elements(By.CSS_SELECTOR, "li")
+                    print(f"[DEBUG] H&M sayfada toplam {len(all_lis)} li elementi var")
+                    if all_lis:
+                        for i, li in enumerate(all_lis[:10]):
+                            try:
+                                li_text = li.text.strip()[:100]
+                                li_class = li.get_attribute("class") or ""
+                                li_aria = li.get_attribute("aria-label") or ""
+                                if "S" in li_text or "M" in li_text or "beden" in li_text.lower() or "beden" in li_aria.lower():
+                                    print(f"[DEBUG] H&M potansiyel li[{i}]: class={li_class[:50]}, aria-label={li_aria[:80]}, text={li_text}")
+                            except:
+                                pass
+                except Exception as e:
+                    print(f"[DEBUG] H&M li element kontrol hatası: {e}")
+                    
             except Exception as debug_e:
                 print(f"[DEBUG] H&M debug hatası: {debug_e}")
+                import traceback
+                print(f"[DEBUG] H&M debug hata detayı: {traceback.format_exc()}")
             return []
 
         wanted = set(x.strip().upper() for x in (sizes_to_check or []))
