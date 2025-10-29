@@ -282,13 +282,22 @@ def check_stock_hm(driver, sizes_to_check):
         except:
             pass
         
-        # Sayfa yüklenmesini bekle
+        # Sayfa yüklenmesini bekle - DOM tam yüklenene kadar bekle
         try:
             WebDriverWait(driver, 10).until(
                 lambda d: d.execute_script("return document.readyState") == "complete"
             )
             # Sayfa yüklenmesi için ek bekleme
             time.sleep(2)
+            
+            # HTML uzunluğu kontrolü - eğer çok kısaysa sayfa tam yüklenmemiş demektir
+            html_length = len(driver.page_source)
+            if html_length < 1000:  # 1000 karakterden azsa problem var
+                print(f"[DEBUG] H&M sayfa HTML çok kısa ({html_length} karakter), daha uzun bekleniyor...")
+                time.sleep(5)  # Ekstra bekleme
+                html_length = len(driver.page_source)
+                print(f"[DEBUG] H&M sayfa HTML uzunluğu (yeniden kontrol): {html_length} karakter")
+            
             print("[DEBUG] H&M sayfa yüklendi")
         except:
             print("[DEBUG] H&M sayfa yükleme beklemesi timeout oldu, devam ediliyor...")
@@ -1046,21 +1055,50 @@ def check_stock_stradivarius(driver, sizes_to_check):
                     # Stradivarius stok kontrolü - Analiz sonuçlarına göre:
                     # 1. disabled attribute varsa → stok YOK
                     # 2. data-cy="grid-product-size-stock-none" varsa → stok YOK
-                    # 3. Yoksa → stok VAR
+                    # 3. "benzer ürünleri görüntüle" text'i varsa → stok YOK
+                    # 4. "bana haber ver" veya "stok olmayınca bana haber ver" text'i varsa → stok YOK
+                    # 5. Yoksa → stok VAR
                     
                     is_disabled = button.get_attribute("disabled") is not None
                     html_lower = (button.get_attribute("outerHTML") or "").lower()
+                    button_text = (button.text or "").lower()
                     
                     # data-cy="grid-product-size-stock-none" kontrolü
                     has_stock_none = "grid-product-size-stock-none" in html_lower or "stock-none" in html_lower
                     
-                    print(f"[DEBUG] Stradivarius beden '{size_label}' - disabled={is_disabled}, stock-none={has_stock_none}")
+                    # "benzer ürünleri görüntüle" kontrolü
+                    has_similar_products = "benzer ürünleri görüntüle" in button_text or "benzer ürünleri görüntüle" in html_lower or "benzer ürün" in button_text
+                    
+                    # "bana haber ver" veya "stok olmayınca bana haber ver" kontrolü
+                    has_notify_me = "bana haber ver" in button_text or "bana haber ver" in html_lower or "stok olmayınca bana haber ver" in button_text or "stok olmayınca bana haber ver" in html_lower
+                    
+                    # Parent li'de de kontrol et
+                    try:
+                        parent_li = button.find_element(By.XPATH, "./ancestor::li[1]")
+                        parent_html = (parent_li.get_attribute("outerHTML") or "").lower()
+                        parent_text = (parent_li.text or "").lower()
+                        if "benzer ürünleri görüntüle" in parent_text or "benzer ürün" in parent_text:
+                            has_similar_products = True
+                        if "bana haber ver" in parent_text or "stok olmayınca bana haber ver" in parent_text:
+                            has_notify_me = True
+                        if "grid-product-size-stock-none" in parent_html or "stock-none" in parent_html:
+                            has_stock_none = True
+                    except:
+                        pass
+                    
+                    print(f"[DEBUG] Stradivarius beden '{size_label}' - disabled={is_disabled}, stock-none={has_stock_none}, similar_products={has_similar_products}, notify_me={has_notify_me}")
                     
                     if is_disabled:
                         print(f"[DEBUG] ❌ Stradivarius beden '{size_label}' stokta değil (disabled attribute)")
                         continue
                     elif has_stock_none:
                         print(f"[DEBUG] ❌ Stradivarius beden '{size_label}' stokta değil (data-cy='grid-product-size-stock-none')")
+                        continue
+                    elif has_similar_products:
+                        print(f"[DEBUG] ❌ Stradivarius beden '{size_label}' stokta değil ('benzer ürünleri görüntüle' text'i bulundu)")
+                        continue
+                    elif has_notify_me:
+                        print(f"[DEBUG] ❌ Stradivarius beden '{size_label}' stokta değil ('bana haber ver' text'i bulundu)")
                         continue
                     else:
                         print(f"[DEBUG] ✅ Stradivarius beden '{size_label}' stokta!")
