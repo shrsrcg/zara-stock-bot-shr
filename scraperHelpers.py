@@ -49,13 +49,21 @@ def check_stock_zara(driver, sizes_to_check):
       - Eşleşme case-insensitive yapılır.
     """
     try:
-        # Sayfayı biraz kaydır (bedenlerin yüklenmesi için)
+        wait = WebDriverWait(driver, 15)
+        
+        # Sayfayı kaydır ve beden alanının yüklenmesini bekle
         try:
-            # Birden fazla scroll yap
-            for scroll_ratio in [0.25, 0.35, 0.45]:
-                driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight * {scroll_ratio});")
-                time.sleep(2)  # Her scroll sonrası bekle
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.3);")
+            time.sleep(1)
         except Exception:
+            pass
+        
+        # Size selector container'ının yüklenmesini bekle
+        try:
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "[data-qa='size-selector'], .size-selector-sizes, div[class*='size-selector']")))
+            time.sleep(2)  # Element'lerin tam yüklenmesi için ek bekleme
+        except TimeoutException:
+            print("[DEBUG] Size container için timeout - devam ediliyor")
             pass
 
         # ZARA SELECTOR STRATEJİSİ: Önce size selector container'ını bul, sonra içindeki butonları al
@@ -86,6 +94,42 @@ def check_stock_zara(driver, sizes_to_check):
         
         # 2) Container varsa içindeki elementleri al (button, div, span, li hepsi olabilir)
         if size_container:
+            # Container'ın HTML'ini debug için göster
+            try:
+                container_html = size_container.get_attribute("outerHTML")[:500]
+                print(f"[DEBUG] Container HTML (ilk 500 karakter): {container_html}")
+                
+                # JavaScript ile container içindeki tüm elementleri bul
+                js_code = """
+                var container = arguments[0];
+                var elements = [];
+                var all = container.querySelectorAll('*');
+                for (var i = 0; i < all.length; i++) {
+                    var el = all[i];
+                    var txt = (el.textContent || el.innerText || '').trim();
+                    if (txt && txt.length <= 3) {
+                        elements.push({
+                            tag: el.tagName,
+                            text: txt,
+                            class: el.className || '',
+                            disabled: el.disabled || el.getAttribute('aria-disabled') === 'true',
+                            html: el.outerHTML.substring(0, 200)
+                        });
+                    }
+                }
+                return elements;
+                """
+                js_results = driver.execute_script(js_code, size_container)
+                if js_results:
+                    print(f"[DEBUG] JavaScript ile container içinde {len(js_results)} element bulundu")
+                    for idx, res in enumerate(js_results[:10]):
+                        print(f"[DEBUG]   JS Element #{idx+1}: tag={res.get('tag', 'N/A')}, text='{res.get('text', '')}', disabled={res.get('disabled', False)}")
+            except Exception as e:
+                print(f"[DEBUG] Container debug hatası: {e}")
+            
+            # Element'lerin yüklenmesi için bekle
+            time.sleep(2)
+            
             # Container içindeki TÜM tıklanabilir elementleri bul
             all_elements_selectors = [
                 # Önce spesifik button'lar
@@ -111,6 +155,11 @@ def check_stock_zara(driver, sizes_to_check):
                     found = size_container.find_elements(By.CSS_SELECTOR, sel)
                     if found:
                         print(f"[DEBUG] Container içinde '{sel}' ile {len(found)} element bulundu")
+                        # İlk birkaç elementin text'ini göster
+                        for idx, elem in enumerate(found[:5]):
+                            txt = _safe_text(elem)
+                            print(f"[DEBUG]   Element #{idx+1}: tag={elem.tag_name}, text='{txt}', class={elem.get_attribute('class')[:50] if elem.get_attribute('class') else 'NONE'}")
+                        
                         # Text ile filtrele - sadece gerçek bedenleri al
                         filtered = []
                         for elem in found:
@@ -124,7 +173,7 @@ def check_stock_zara(driver, sizes_to_check):
                                     disabled = ("disabled" in cls) or (aria_disabled == "true") or (elem.get_attribute("disabled") is not None)
                                     if not disabled:
                                         filtered.append(elem)
-                                        print(f"[DEBUG] Container'da beden bulundu: '{txt}' (element: {elem.tag_name}, cls: {cls[:50]})")
+                                        print(f"[DEBUG] ✅ Container'da beden bulundu: '{txt}' (element: {elem.tag_name})")
                         
                         if filtered:
                             print(f"[DEBUG] ✅ Container içinde toplam {len(filtered)} beden element bulundu")
