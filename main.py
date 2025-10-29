@@ -480,9 +480,9 @@ if __name__ == "__main__":
                         elif store == "bershka":
                             # Bershka için dom kontrolü için aynı genel fonksiyonu kullan
                             enabled_dom_sizes = get_enabled_size_buttons(driver)
-                        elif store in ["hm", "h&m", "mango"]:
-                            # H&M ve Mango için DOM-CONFIRM kullanma - özel scraper fonksiyonları zaten doğru çalışıyor
-                            log.info("[DOM-CONFIRM] H&M/Mango için DOM-CONFIRM atlanıyor (özel scraper kullanılıyor)")
+                        elif store in ["hm", "h&m"]:
+                            # H&M için DOM-CONFIRM kullanma - özel scraper fonksiyonu zaten doğru çalışıyor
+                            log.info("[DOM-CONFIRM] H&M için DOM-CONFIRM atlanıyor (özel scraper kullanılıyor)")
                             enabled_dom_sizes = []  # Boş liste = filtreleme yok
                         else:
                             enabled_dom_sizes = get_enabled_size_buttons(driver)
