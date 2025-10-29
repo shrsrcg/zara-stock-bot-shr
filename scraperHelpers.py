@@ -105,7 +105,7 @@ def check_stock_zara(driver, sizes_to_check):
             except Exception as e:
                 print(f"[DEBUG] Size element işlenirken hata: {e}")
                 continue
-        
+
         if in_stock:
             print(f"[DEBUG] ✅ Toplam {len(in_stock)} beden stokta: {in_stock}")
             return in_stock
@@ -113,14 +113,12 @@ def check_stock_zara(driver, sizes_to_check):
             wanted = set(x.strip().upper() for x in (sizes_to_check or []))
             print(f"[DEBUG] İstenen bedenler stokta değil: {list(wanted)}")
             return []
-    
+
     except Exception as e:
         print(f"[DEBUG] check_stock_zara genel hatası: {e}")
         import traceback
         print(f"[DEBUG] Hata detayı:\n{traceback.format_exc()}")
         return []
-    
-    return []
 
 
 # ------------------------------------------------------------
@@ -272,30 +270,42 @@ def check_stock_hm(driver, sizes_to_check):
             "li > div[tabindex='0']"
         ]
         
+        seen_size_labels = set()  # Tekrar eden bedenleri filtrelemek için
         for sel in size_selectors:
             try:
                 found = driver.find_elements(By.CSS_SELECTOR, sel)
                 if found:
                     # Text içerenleri filtrele (gerçek beden elementleri)
+                    # Analiz sonuçlarına göre: div[id^="sizebutton-"] veya div[data-testid^="sizebutton-"]
                     filtered = []
                     for el in found:
                         try:
+                            # İç div[dir="ltr"] elementi bul
                             text_elem = el.find_element(By.CSS_SELECTOR, "div[dir='ltr']")
-                            text = text_elem.text.strip().upper()
-                            if text and text in ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL'] or (text.isdigit() and 28 <= int(text) <= 50):
-                                filtered.append(el)
-                        except:
-                            text = el.text.strip().upper()
+                            text = text_elem.text.strip().replace("\xa0", " ").strip().upper()
                             if text and (text in ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL'] or (text.isdigit() and 28 <= int(text) <= 50)):
-                                filtered.append(el)
+                                # Tekrar edenleri filtrele
+                                if text not in seen_size_labels:
+                                    seen_size_labels.add(text)
+                                    filtered.append(el)
+                                    print(f"[DEBUG] H&M beden bulundu: '{text}' (element: {el.tag_name})")
+                        except:
+                            # Fallback: direkt textContent
+                            text = el.text.strip().replace("\xa0", " ").strip().upper()
+                            if text and (text in ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL'] or (text.isdigit() and 28 <= int(text) <= 50)):
+                                if text not in seen_size_labels:
+                                    seen_size_labels.add(text)
+                                    filtered.append(el)
+                                    print(f"[DEBUG] H&M beden bulundu (fallback): '{text}' (element: {el.tag_name})")
                     
                     if filtered:
-                        print(f"[DEBUG] H&M {len(filtered)} size element bulundu (selector: {sel})")
+                        print(f"[DEBUG] H&M {len(filtered)} benzersiz size element bulundu (selector: {sel})")
                         size_elements = filtered
                         break
-            except:
+            except Exception as e:
+                print(f"[DEBUG] H&M selector '{sel}' hatası: {e}")
                 continue
-        
+
         if not size_elements:
             print("[DEBUG] H&M size element bulunamadı - tüm selector'lar denendi")
             # Debug: sayfanın HTML'ini kontrol et
@@ -308,7 +318,7 @@ def check_stock_hm(driver, sizes_to_check):
             except:
                 pass
             return []
-        
+
         wanted = set(x.strip().upper() for x in (sizes_to_check or []))
         in_stock = []
         
@@ -321,47 +331,54 @@ def check_stock_hm(driver, sizes_to_check):
                 except:
                     # Fallback: direkt textContent
                     size_label = element.text.strip().upper()
-                
+
                 if not size_label:
                     continue
-                
+
                 # Normalize (trim whitespace)
                 size_label = size_label.replace("\xa0", " ").strip().upper()
                 
                 # İstenen beden kontrolü
                 if not wanted or size_label in wanted:
-                    # aria-label kontrolü ile stok durumu tespit et
+                    # H&M stok kontrolü - Analiz sonuçlarına göre:
+                    # aria-label="... stokta. beden seç." → stok VAR
+                    # aria-label="... stokta yok. benzer ürünleri görmek..." → stok YOK
+                    
                     aria_label = element.get_attribute("aria-label") or ""
                     aria_label_lower = aria_label.lower()
                     
-                    # H&M stok kontrolü: aria-label içinde "stokta" varsa stok var
-                    # "stokta yok" veya "benzer ürünleri görmek" varsa stok yok
+                    # Analiz sonuçlarına göre: "stokta yok" veya "benzer ürünleri görmek" varsa stok yok
                     if "stokta yok" in aria_label_lower or "benzer ürünleri görmek" in aria_label_lower:
-                        print(f"[DEBUG] ❌ H&M beden '{size_label}' stokta değil (aria-label: {aria_label[:50]})")
+                        print(f"[DEBUG] ❌ H&M beden '{size_label}' stokta değil (aria-label: {aria_label[:80]})")
                         continue
+                    # "stokta. beden seç." varsa stok var
+                    elif "stokta" in aria_label_lower and "beden seç" in aria_label_lower:
+                        print(f"[DEBUG] ✅ H&M beden '{size_label}' stokta! (aria-label: {aria_label[:50]})")
+                        in_stock.append(size_label)
+                    # Sadece "stokta" varsa ama "stokta yok" yoksa
                     elif "stokta" in aria_label_lower:
-                        print(f"[DEBUG] ✅ H&M beden '{size_label}' stokta!")
+                        print(f"[DEBUG] ✅ H&M beden '{size_label}' stokta! (aria-label: {aria_label[:50]})")
                         in_stock.append(size_label)
                     else:
                         # aria-label belirsizse, disabled kontrolü yap
                         if element.get_attribute("aria-disabled") == "true":
-                            print(f"[DEBUG] ❌ H&M beden '{size_label}' disabled")
+                            print(f"[DEBUG] ❌ H&M beden '{size_label}' disabled (aria-label yok)")
                             continue
                         else:
-                            print(f"[DEBUG] ✅ H&M beden '{size_label}' stokta (belirsiz ama disabled değil)")
-                            in_stock.append(size_label)
-                            
+                            # Belirsiz durum - varsayılan olarak stokta değil
+                            print(f"[DEBUG] ❌ H&M beden '{size_label}' stokta değil (aria-label belirsiz: {aria_label[:50]})")
+
             except Exception as e:
                 print(f"[DEBUG] H&M size element işlenirken hata: {e}")
                 continue
-        
+
         if in_stock:
             print(f"[DEBUG] ✅ H&M toplam {len(in_stock)} beden stokta: {in_stock}")
         else:
             print(f"[DEBUG] H&M istenen bedenler stokta değil: {list(wanted)}")
-        
+
         return in_stock
-        
+
     except Exception as e:
         print(f"[DEBUG] check_stock_hm genel hatası: {e}")
         import traceback
@@ -491,41 +508,59 @@ def check_stock_mango(driver, sizes_to_check):
                 
                 # İstenen beden kontrolü
                 if not wanted or size_label in wanted:
-                    # Class kontrolü ile stok durumu tespit et
+                    # Mango stok kontrolü - Analiz sonuçlarına göre:
+                    # Button'un içindeki span'de "notavailable" varsa → stok YOK
+                    # Button'da "selectable" varsa → stok VAR
+                    
                     class_attr = button.get_attribute("class") or ""
                     class_lower = class_attr.lower()
-                    
-                    # Mango stok kontrolü:
-                    # - SizeItemContent_notAvailable__2WJ__ varsa → stok YOK
-                    # - SizeItem_selectable__J5zws varsa → stok VAR
-                    # - "notify-availability" veya popup varsa → stok YOK
-                    
                     html_lower = (button.get_attribute("outerHTML") or "").lower()
                     
-                    if "notavailable" in class_lower or "not-available" in class_lower:
-                        print(f"[DEBUG] ❌ Mango beden '{size_label}' stokta değil (notAvailable class)")
+                    # İç span'de notavailable var mı kontrol et
+                    try:
+                        inner_spans = button.find_elements(By.CSS_SELECTOR, "span[class*='notavailable'], span[class*='not-available']")
+                        if inner_spans:
+                            inner_class = (inner_spans[0].get_attribute("class") or "").lower()
+                            if "notavailable" in inner_class:
+                                print(f"[DEBUG] ❌ Mango beden '{size_label}' stokta değil (iç span'de notAvailable: {inner_class[:50]})")
+                                continue
+                    except:
+                        pass
+                    
+                    # Button'un HTML'inde notavailable var mı kontrol et
+                    if "notavailable" in html_lower or "not-available" in html_lower:
+                        print(f"[DEBUG] ❌ Mango beden '{size_label}' stokta değil (HTML'de notAvailable)")
                         continue
-                    elif "notify-availability" in html_lower or "beni haberdar et" in html_lower:
+                    
+                    # notify-availability popup kontrolü
+                    if "notify-availability" in html_lower or "beni haberdar et" in html_lower:
                         print(f"[DEBUG] ❌ Mango beden '{size_label}' stokta değil (notify popup)")
                         continue
-                    elif "selectable" in class_lower and "notavailable" not in class_lower:
-                        print(f"[DEBUG] ✅ Mango beden '{size_label}' stokta!")
+                    
+                    # selectable class kontrolü (button level)
+                    if "selectable" in class_lower:
+                        print(f"[DEBUG] ✅ Mango beden '{size_label}' stokta! (selectable class)")
                         in_stock.append(size_label)
-                    elif button.get_attribute("disabled") or button.get_attribute("aria-disabled") == "true":
+                        continue
+                    
+                    # Parent li'de selectable var mı?
+                    try:
+                        parent_li = button.find_element(By.XPATH, "./ancestor::li[1]")
+                        parent_class = (parent_li.get_attribute("class") or "").lower()
+                        if "selectable" in parent_class:
+                            print(f"[DEBUG] ✅ Mango beden '{size_label}' stokta! (parent li'de selectable)")
+                            in_stock.append(size_label)
+                            continue
+                    except:
+                        pass
+                    
+                    # Disabled kontrolü
+                    if button.get_attribute("disabled") or button.get_attribute("aria-disabled") == "true":
                         print(f"[DEBUG] ❌ Mango beden '{size_label}' disabled")
                         continue
-                    else:
-                        # Belirsiz durum - selectable class var mı kontrol et
-                        try:
-                            parent_li = button.find_element(By.XPATH, "./ancestor::li[1]")
-                            parent_class = (parent_li.get_attribute("class") or "").lower()
-                            if "selectable" in parent_class or "selectable" in class_lower:
-                                print(f"[DEBUG] ✅ Mango beden '{size_label}' stokta (belirsiz ama selectable)")
-                                in_stock.append(size_label)
-                            else:
-                                print(f"[DEBUG] ❌ Mango beden '{size_label}' stokta değil (belirsiz)")
-                        except:
-                            print(f"[DEBUG] ❌ Mango beden '{size_label}' stokta değil (belirsiz)")
+                    
+                    # Belirsiz durum - varsayılan olarak stokta değil
+                    print(f"[DEBUG] ❌ Mango beden '{size_label}' stokta değil (belirsiz, selectable yok)")
                         
             except Exception as e:
                 print(f"[DEBUG] Mango size element işlenirken hata: {e}")
