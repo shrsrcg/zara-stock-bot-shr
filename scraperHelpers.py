@@ -1138,13 +1138,62 @@ def check_stock_oysho(driver, sizes_to_check):
                 
                 # İstenen beden kontrolü
                 if not wanted or size_label in wanted:
+                    print(f"[DEBUG] Oysho beden '{size_label}' istenenler arasında, stok kontrol ediliyor...")
+                    
                     # Oysho stok kontrolü - Analiz sonuçlarına göre:
                     # 1. disabled attribute varsa → stok YOK
                     # 2. aria-disabled="true" varsa → stok YOK
-                    # 3. Yoksa → stok VAR
+                    # 3. Button içinde "benzer ürünler" veya stok yok göstergesi varsa → stok YOK
+                    # 4. Button'a tıklanabilir mi kontrol et (stok varsa tıklanabilir olmalı)
                     
                     is_disabled = button.get_attribute("disabled") is not None
                     aria_disabled = button.get_attribute("aria-disabled") == "true"
+                    button_html = (button.get_attribute("outerHTML") or "").lower()
+                    button_class = (button.get_attribute("class") or "").lower()
+                    
+                    # Button içinde "benzer ürünler", "stok yok", "out of stock" gibi ifadeleri kontrol et
+                    has_similar_products = False
+                    try:
+                        # Button içindeki tüm text'i kontrol et
+                        button_text = button.text.lower()
+                        similar_phrases = ["benzer ürünler", "benzer ürün", "stok yok", "out of stock", "unavailable", "not available"]
+                        for phrase in similar_phrases:
+                            if phrase in button_text:
+                                has_similar_products = True
+                                print(f"[DEBUG] Oysho beden '{size_label}' - '{phrase}' text'i bulundu")
+                                break
+                    except:
+                        pass
+                    
+                    # Button HTML'inde stok yok göstergeleri kontrol et
+                    has_out_of_stock_indicator = False
+                    out_of_stock_indicators = [
+                        "out-of-stock", "outofstock", "unavailable", "not-available",
+                        "no-stock", "stock-none", "disabled", "not-allowed"
+                    ]
+                    for indicator in out_of_stock_indicators:
+                        if indicator in button_html or indicator in button_class:
+                            has_out_of_stock_indicator = True
+                            print(f"[DEBUG] Oysho beden '{size_label}' - '{indicator}' indicator bulundu")
+                            break
+                    
+                    # Button'ın parent li elementinde de kontrol et
+                    try:
+                        parent_li = button.find_element(By.XPATH, "./ancestor::li[1]")
+                        parent_class = (parent_li.get_attribute("class") or "").lower()
+                        parent_html = (parent_li.get_attribute("outerHTML") or "").lower()
+                        
+                        for indicator in out_of_stock_indicators:
+                            if indicator in parent_class or indicator in parent_html:
+                                has_out_of_stock_indicator = True
+                                print(f"[DEBUG] Oysho beden '{size_label}' - parent li'de '{indicator}' bulundu")
+                                break
+                    except:
+                        pass
+                    
+                    # Tüm kontrolleri özetle
+                    print(f"[DEBUG] Oysho beden '{size_label}' - disabled={is_disabled}, aria-disabled={aria_disabled}, similar_products={has_similar_products}, out_of_stock={has_out_of_stock_indicator}")
+                    print(f"[DEBUG] Oysho beden '{size_label}' - button class: {button_class[:100]}")
                     
                     if is_disabled:
                         print(f"[DEBUG] ❌ Oysho beden '{size_label}' stokta değil (disabled attribute)")
@@ -1152,9 +1201,25 @@ def check_stock_oysho(driver, sizes_to_check):
                     elif aria_disabled:
                         print(f"[DEBUG] ❌ Oysho beden '{size_label}' stokta değil (aria-disabled='true')")
                         continue
+                    elif has_similar_products:
+                        print(f"[DEBUG] ❌ Oysho beden '{size_label}' stokta değil ('benzer ürünler' text'i bulundu)")
+                        continue
+                    elif has_out_of_stock_indicator:
+                        print(f"[DEBUG] ❌ Oysho beden '{size_label}' stokta değil (out-of-stock indicator bulundu)")
+                        continue
                     else:
+                        # Son kontrol: Button tıklanabilir mi? (EC.element_to_be_clickable test etmeden, sadece görünür ve enabled mı kontrol et)
+                        try:
+                            if not button.is_displayed():
+                                print(f"[DEBUG] ❌ Oysho beden '{size_label}' stokta değil (button görünmüyor)")
+                                continue
+                        except:
+                            pass
+                        
                         print(f"[DEBUG] ✅ Oysho beden '{size_label}' stokta!")
                         in_stock.append(size_label)
+                else:
+                    print(f"[DEBUG] Oysho beden '{size_label}' istenenler arasında değil (wanted: {list(wanted)})")
                         
             except Exception as e:
                 print(f"[DEBUG] Oysho button işlenirken hata: {e}")
