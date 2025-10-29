@@ -338,7 +338,7 @@ def check_stock_hm(driver, sizes_to_check):
                 selector_found = True
                 # Element'lerin tam yüklenmesi için daha uzun bekle
                 time.sleep(3)
-                    break
+                break
             except TimeoutException:
                 continue
 
@@ -516,12 +516,11 @@ def check_stock_hm(driver, sizes_to_check):
                     # Sadece "stokta" varsa ama "stokta yok" yoksa
                     elif "stokta" in aria_label_lower:
                         print(f"[DEBUG] ✅ H&M beden '{size_label}' stokta! (aria-label: {aria_label[:50]})")
-                    in_stock.append(size_label)
+                        in_stock.append(size_label)
                     else:
                         # aria-label belirsizse, disabled kontrolü yap
                         if element.get_attribute("aria-disabled") == "true":
                             print(f"[DEBUG] ❌ H&M beden '{size_label}' disabled (aria-label yok)")
-                continue
                         else:
                             # Belirsiz durum - varsayılan olarak stokta değil
                             print(f"[DEBUG] ❌ H&M beden '{size_label}' stokta değil (aria-label belirsiz: {aria_label[:50]})")
@@ -597,7 +596,7 @@ def check_stock_mango(driver, sizes_to_check):
                 selector_found = True
                 time.sleep(2.5)  # Dinamik class güncellemeleri için daha uzun bekle
                 break
-        except TimeoutException:
+            except TimeoutException:
                 continue
         
         if not selector_found:
@@ -693,7 +692,7 @@ def check_stock_mango(driver, sizes_to_check):
                     # notify-availability popup kontrolü
                     if "notify-availability" in html_lower or "beni haberdar et" in html_lower:
                         print(f"[DEBUG] ❌ Mango beden '{size_label}' stokta değil (notify popup)")
-                    continue
+                        continue
 
                     # selectable class kontrolü (button level)
                     if "selectable" in class_lower:
@@ -707,7 +706,7 @@ def check_stock_mango(driver, sizes_to_check):
                         parent_class = (parent_li.get_attribute("class") or "").lower()
                         if "selectable" in parent_class:
                             print(f"[DEBUG] ✅ Mango beden '{size_label}' stokta! (parent li'de selectable)")
-                    in_stock.append(size_label)
+                            in_stock.append(size_label)
                             continue
                     except:
                         pass
@@ -715,7 +714,7 @@ def check_stock_mango(driver, sizes_to_check):
                     # Disabled kontrolü
                     if button.get_attribute("disabled") or button.get_attribute("aria-disabled") == "true":
                         print(f"[DEBUG] ❌ Mango beden '{size_label}' disabled")
-                continue
+                        continue
                     
                     # Belirsiz durum - varsayılan olarak stokta değil
                     print(f"[DEBUG] ❌ Mango beden '{size_label}' stokta değil (belirsiz, selectable yok)")
@@ -788,7 +787,7 @@ def check_stock_stradivarius(driver, sizes_to_check):
                 selector_found = True
                 time.sleep(2)  # Element'lerin tam yüklenmesi için
                 break
-    except TimeoutException:
+            except TimeoutException:
                 continue
         
         if not selector_found:
