@@ -150,39 +150,65 @@ def check_stock_zara(driver, sizes_to_check):
                 if wanted and (size_label not in wanted):
                     continue
 
-                # Buton disabled mı kontrol et
+                # Buton özelliklerini topla
                 cls = (b.get_attribute("class") or "").lower()
                 aria = (b.get_attribute("aria-disabled") or "").lower()
                 qa = (b.get_attribute("data-qa-action") or "").lower()
                 disabled = ("disabled" in cls) or (aria == "true") or (b.get_attribute("disabled") is not None)
-
-                # Stok kontrolü - ChatGPT analizi sonrası güncellendi
+                
+                # HTML içeriğini kontrol et (coming soon için)
+                try:
+                    html_raw = b.get_attribute("outerHTML") or ""
+                    html_lower = html_raw.lower()
+                except:
+                    html_lower = ""
+                
+                # Coming soon kontrolü (kazak M bedeni için)
+                is_coming_soon = (
+                    "coming" in html_lower or 
+                    "yakında" in html_lower or 
+                    "coming" in cls or
+                    "coming-soon" in cls
+                )
+                
+                # Stok kontrolü - ChatGPT analizi + kazak analizi sonrası güncellendi
                 # Öncelik: data-qa-action="size-in-stock" → kesin stokta
                 # İkinci: class="size-selector-sizes-size--enabled" → stokta
+                # Red: Coming soon veya disabled → stokta değil
                 # Son çare: disabled değilse kabul et
                 
                 is_in_stock = False
                 
+                # 0) ÖNCE RED KONTROLÜ - Coming soon veya disabled → kesinlikle stokta değil
+                if is_coming_soon:
+                    print(f"[DEBUG] ❌ Beden '{size_label}' coming soon - stokta değil")
+                    is_in_stock = False
+                
                 # 1) ChatGPT'nin bulduğu: data-qa-action="size-in-stock" → kesin stokta
-                if qa and ("size-in-stock" in qa or "in-stock" in qa or "low-on-stock" in qa):
+                elif qa and ("size-in-stock" in qa or "in-stock" in qa or "low-on-stock" in qa):
                     is_in_stock = True
+                    print(f"[DEBUG] ✅ Beden '{size_label}' stokta (data-qa-action={qa})")
                     
                 # 2) Enabled class var mı? (ayakkabı için)
                 elif "size-selector-sizes-size--enabled" in cls:
                     is_in_stock = True
+                    print(f"[DEBUG] ✅ Beden '{size_label}' stokta (enabled class)")
                     
                 # 3) Explicit disabled işaretleri varsa → stokta değil
-                elif "out-of-stock" in qa or "disabled" in qa or "coming" in cls.lower():
+                elif "out-of-stock" in qa or "disabled" in qa:
                     is_in_stock = False
+                    print(f"[DEBUG] ❌ Beden '{size_label}' disabled/out-of-stock")
                     
                 # 4) Qa-action yoksa → disabled değilse kabul et (dikkatli)
-                elif not qa:
+                elif not qa and not disabled:
                     # Güvenlik: Çok genel olmasın, en azından size pattern'i doğrula
-                    is_in_stock = not disabled
+                    is_in_stock = True
+                    print(f"[DEBUG] ⚠️ Beden '{size_label}' qa-action yok ama disabled değil - kabul edildi")
+                else:
+                    is_in_stock = False
                 
                 if is_in_stock:
                     in_stock.append(size_label)
-                    print(f"[DEBUG] ✅ Beden '{size_label}' stokta kabul edildi (qa={qa}, cls={cls[:50]})")
 
             except StaleElementReferenceException:
                 continue
