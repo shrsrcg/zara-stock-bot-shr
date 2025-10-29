@@ -13,12 +13,22 @@
     {
       "url": "https://www.stradivarius.com/tr/suslu-dugmeli-suni-suet-ceket-l05862754?colorId=400&pelement=450792917",
       "store": "stradivarius",
-      "sizes": ["S", "L"]
+      "sizes": ["M", "L","XL"]
+    },
+    {
+      "url": "https://www.zara.com/tr/tr/yuksek-bel-can-paca-pantolon-p03152436.html?v1=483702966",
+      "store": "zara",
+      "sizes": ["S"]
     },
     {
       "url": "https://www.zara.com/tr/tr/trf-high-rise-wide-leg-jean-p05575029.html?v1=470151992",
       "store": "zara",
       "sizes": ["34", "36"]
+    },
+    {
+      "url": "https://www.zara.com/tr/tr/cift-katli-triko-hirka-p04938126.html?v1=493502165",
+      "store": "zara",
+      "sizes": ["S"]
     }
   ],
   "sleep_min_seconds": 20,
