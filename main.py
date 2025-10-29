@@ -33,11 +33,11 @@ if 'pygame' not in sys.modules:
     sys.modules['pygame'] = pygame_stub
 # --- HOTFIX SONU ---
 
-# Helpers (Zara/Bershka/H&M/Mango/Stradivarius)
+# Helpers (Zara/Bershka/H&M/Mango/Stradivarius/Oysho)
 try:
-    from scraperHelpers import check_stock_zara, check_stock_bershka, check_stock_hm, check_stock_mango, check_stock_stradivarius
+    from scraperHelpers import check_stock_zara, check_stock_bershka, check_stock_hm, check_stock_mango, check_stock_stradivarius, check_stock_oysho
 except ModuleNotFoundError:
-    from scraperHelpers import check_stock_zara, check_stock_bershka, check_stock_hm, check_stock_mango, check_stock_stradivarius
+    from scraperHelpers import check_stock_zara, check_stock_bershka, check_stock_hm, check_stock_mango, check_stock_stradivarius, check_stock_oysho
 
 # -----------------------------
 # LOGGING
@@ -462,6 +462,8 @@ if __name__ == "__main__":
                         raw = check_stock_mango(driver, sizes)
                     elif store == "stradivarius":
                         raw = check_stock_stradivarius(driver, sizes)
+                    elif store == "oysho":
+                        raw = check_stock_oysho(driver, sizes)
                     else:
                         log.warning("Unknown store, skipping: %s", store)
                         continue

@@ -961,3 +961,182 @@ def check_stock_stradivarius(driver, sizes_to_check):
         import traceback
         print(f"[DEBUG] Hata detayı:\n{traceback.format_exc()}")
         return []
+
+
+# ------------------------------------------------------------
+# OYSHO: link-bazlı beden kontrolü
+# ------------------------------------------------------------
+def check_stock_oysho(driver, sizes_to_check):
+    """
+    Girdi  : driver, sizes_to_check (örn: ["XS","S","M"])
+    Çıktı  : stokta bulunan bedenler (list[str]); yoksa [].
+    Hata   : []
+    Notlar :
+      - li.product-size-selector__size-item > button[data-testid="product-size-selector-item"] yapısında
+      - Beden text'i button içindeki span'de
+      - disabled attribute varsa → stok YOK
+      - aria-disabled="true" varsa → stok YOK
+      - Eşleşme case-insensitive yapılır.
+    """
+    try:
+        wait = WebDriverWait(driver, 25)
+        
+        # Sayfayı kaydır (lazy-load için)
+        try:
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.4);")
+            time.sleep(2)
+        except:
+            pass
+        
+        # Cookie popup kontrolü (gerekirse)
+        try:
+            cookie_button = driver.find_elements(By.CSS_SELECTOR, "button[id*='onetrust'], button[id*='cookie'], button[class*='cookie']")
+            if cookie_button:
+                cookie_button[0].click()
+                print("[DEBUG] Oysho cookie popup kapatıldı")
+                time.sleep(1)
+        except:
+            pass
+        
+        # Size selector'ın yüklenmesini bekle
+        wait_selectors = [
+            "button[data-testid='product-size-selector-item']",
+            "li.product-size-selector__size-item button",
+            "button.oy-button.product-size-selector__size-button",
+            "li[class*='size-item'] button"
+        ]
+        
+        selector_found = False
+        for wait_sel in wait_selectors:
+            try:
+                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, wait_sel)))
+                print(f"[DEBUG] Oysho size selector görüldü (wait selector: {wait_sel})")
+                selector_found = True
+                time.sleep(2)  # Element'lerin tam yüklenmesi için
+                break
+            except TimeoutException:
+                continue
+        
+        if not selector_found:
+            print("[DEBUG] Oysho size selector görünmedi - tüm wait selector'lar denendi")
+            time.sleep(2)  # Yine de biraz bekle
+        
+        # Size elementlerini bul - Analiz sonuçlarına göre: button[data-testid="product-size-selector-item"]
+        size_selectors = [
+            "button[data-testid='product-size-selector-item']",  # EN ÖNEMLİ: Analiz sonuçlarına göre
+            "li.product-size-selector__size-item button",  # LI container'dan
+            "button.oy-button.product-size-selector__size-button",  # Class ile
+            "li[class*='size-item'] button"  # Genel
+        ]
+        
+        size_elements = []
+        seen_size_labels = set()
+        
+        for sel in size_selectors:
+            try:
+                found = driver.find_elements(By.CSS_SELECTOR, sel)
+                print(f"[DEBUG] Oysho selector '{sel}' ile {len(found)} element bulundu")
+                if found:
+                    for button in found:
+                        try:
+                            # Beden text'i bul - analiz sonuçlarına göre span içinde
+                            try:
+                                # Önce span içinde ara
+                                size_span = button.find_element(By.CSS_SELECTOR, "span")
+                                size_label = size_span.text.strip().upper()
+                            except NoSuchElementException:
+                                # Fallback: direkt button text
+                                size_label = button.text.strip().upper()
+                            
+                            if not size_label:
+                                continue
+                            
+                            # Text temizleme
+                            size_label = size_label.replace("\xa0", " ").strip().upper()
+                            
+                            # Beden formatı kontrolü
+                            is_valid_size = False
+                            if size_label in ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL']:
+                                is_valid_size = True
+                            elif size_label.isdigit() and 28 <= int(size_label) <= 50:
+                                is_valid_size = True
+                            elif len(size_label) <= 3:  # Kısa text'ler
+                                try:
+                                    int(size_label)
+                                    if 28 <= int(size_label) <= 50:
+                                        is_valid_size = True
+                                except:
+                                    pass
+                            
+                            if is_valid_size:
+                                # Tekrar edenleri filtrele
+                                if size_label not in seen_size_labels:
+                                    seen_size_labels.add(size_label)
+                                    size_elements.append(button)
+                                    print(f"[DEBUG] Oysho beden bulundu: '{size_label}' (button data-testid: {button.get_attribute('data-testid')})")
+                        except Exception as inner_e:
+                            print(f"[DEBUG] Oysho button işlenirken hata: {inner_e}")
+                            continue
+                    
+                    if size_elements:
+                        print(f"[DEBUG] Oysho {len(size_elements)} benzersiz size element bulundu (selector: {sel})")
+                        break
+            except Exception as e:
+                print(f"[DEBUG] Oysho selector '{sel}' hatası: {e}")
+                continue
+        
+        if not size_elements:
+            print("[DEBUG] Oysho size element bulunamadı")
+            return []
+        
+        wanted = set(x.strip().upper() for x in (sizes_to_check or []))
+        in_stock = []
+        
+        for button in size_elements:
+            try:
+                # Beden text'ini tekrar al
+                try:
+                    size_span = button.find_element(By.CSS_SELECTOR, "span")
+                    size_label = size_span.text.strip().upper()
+                except:
+                    size_label = button.text.strip().upper()
+                
+                if not size_label:
+                    continue
+                
+                # İstenen beden kontrolü
+                if not wanted or size_label in wanted:
+                    # Oysho stok kontrolü - Analiz sonuçlarına göre:
+                    # 1. disabled attribute varsa → stok YOK
+                    # 2. aria-disabled="true" varsa → stok YOK
+                    # 3. Yoksa → stok VAR
+                    
+                    is_disabled = button.get_attribute("disabled") is not None
+                    aria_disabled = button.get_attribute("aria-disabled") == "true"
+                    
+                    if is_disabled:
+                        print(f"[DEBUG] ❌ Oysho beden '{size_label}' stokta değil (disabled attribute)")
+                        continue
+                    elif aria_disabled:
+                        print(f"[DEBUG] ❌ Oysho beden '{size_label}' stokta değil (aria-disabled='true')")
+                        continue
+                    else:
+                        print(f"[DEBUG] ✅ Oysho beden '{size_label}' stokta!")
+                        in_stock.append(size_label)
+                        
+            except Exception as e:
+                print(f"[DEBUG] Oysho button işlenirken hata: {e}")
+                continue
+        
+        if in_stock:
+            print(f"[DEBUG] ✅ Oysho toplam {len(in_stock)} beden stokta: {in_stock}")
+        else:
+            print(f"[DEBUG] Oysho istenen bedenler stokta değil: {list(wanted)}")
+        
+        return in_stock
+        
+    except Exception as e:
+        print(f"[DEBUG] check_stock_oysho genel hatası: {e}")
+        import traceback
+        print(f"[DEBUG] Hata detayı:\n{traceback.format_exc()}")
+        return []
