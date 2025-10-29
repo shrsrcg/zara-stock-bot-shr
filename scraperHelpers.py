@@ -658,7 +658,7 @@ def check_stock_mango(driver, sizes_to_check):
             if cookie_button:
                 cookie_button[0].click()
                 print("[DEBUG] Mango cookie popup kapatıldı")
-                time.sleep(1)
+            time.sleep(1)
         except:
             pass
         
@@ -753,11 +753,10 @@ def check_stock_mango(driver, sizes_to_check):
                     # Mango stok kontrolü - Analiz sonuçlarına göre:
                     # Button'un içindeki span'de "notavailable" varsa → stok YOK
                     # Button'da "selectable" varsa → stok VAR
-                    
                     class_attr = button.get_attribute("class") or ""
                     class_lower = class_attr.lower()
                     html_lower = (button.get_attribute("outerHTML") or "").lower()
-                    
+
                     # İç span'de notavailable var mı kontrol et
                     try:
                         inner_spans = button.find_elements(By.CSS_SELECTOR, "span[class*='notavailable'], span[class*='not-available']")
@@ -768,12 +767,12 @@ def check_stock_mango(driver, sizes_to_check):
                                 continue
                     except:
                         pass
-                    
+
                     # Button'un HTML'inde notavailable var mı kontrol et
                     if "notavailable" in html_lower or "not-available" in html_lower:
                         print(f"[DEBUG] ❌ Mango beden '{size_label}' stokta değil (HTML'de notAvailable)")
                         continue
-                    
+
                     # notify-availability popup kontrolü
                     if "notify-availability" in html_lower or "beni haberdar et" in html_lower:
                         print(f"[DEBUG] ❌ Mango beden '{size_label}' stokta değil (notify popup)")
@@ -784,7 +783,7 @@ def check_stock_mango(driver, sizes_to_check):
                         print(f"[DEBUG] ✅ Mango beden '{size_label}' stokta! (selectable class)")
                         in_stock.append(size_label)
                         continue
-                    
+
                     # Parent li'de selectable var mı?
                     try:
                         parent_li = button.find_element(By.XPATH, "./ancestor::li[1]")
@@ -800,7 +799,7 @@ def check_stock_mango(driver, sizes_to_check):
                     if button.get_attribute("disabled") or button.get_attribute("aria-disabled") == "true":
                         print(f"[DEBUG] ❌ Mango beden '{size_label}' disabled")
                         continue
-                    
+
                     # Belirsiz durum - varsayılan olarak stokta değil
                     print(f"[DEBUG] ❌ Mango beden '{size_label}' stokta değil (belirsiz, selectable yok)")
                         
@@ -812,7 +811,7 @@ def check_stock_mango(driver, sizes_to_check):
             print(f"[DEBUG] ✅ Mango toplam {len(in_stock)} beden stokta: {in_stock}")
         else:
             print(f"[DEBUG] Mango istenen bedenler stokta değil: {list(wanted)}")
-        
+
         return in_stock
 
     except Exception as e:
@@ -1126,6 +1125,7 @@ def check_stock_stradivarius(driver, sizes_to_check):
                     is_disabled = button.get_attribute("disabled") is not None
                     html_lower = (button.get_attribute("outerHTML") or "").lower()
                     button_text = (button.text or "").lower()
+                    button_class_lower = (button.get_attribute("class") or "").lower()
                     
                     # data-cy="grid-product-size-stock-none" kontrolü
                     has_stock_none = "grid-product-size-stock-none" in html_lower or "stock-none" in html_lower
@@ -1141,6 +1141,7 @@ def check_stock_stradivarius(driver, sizes_to_check):
                         parent_li = button.find_element(By.XPATH, "./ancestor::li[1]")
                         parent_html = (parent_li.get_attribute("outerHTML") or "").lower()
                         parent_text = (parent_li.text or "").lower()
+                        parent_class_lower = (parent_li.get_attribute("class") or "").lower()
                         if "benzer ürünleri görüntüle" in parent_text or "benzer ürün" in parent_text:
                             has_similar_products = True
                         if "bana haber ver" in parent_text or "stok olmayınca bana haber ver" in parent_text:
@@ -1149,14 +1150,21 @@ def check_stock_stradivarius(driver, sizes_to_check):
                             has_stock_none = True
                     except:
                         pass
+
+                    # Class tabanlı durum sezgileri (kXgBpS = OOS, lbblEr = in-stock) - saha çıktısından
+                    has_oos_by_class = ("kxgbps" in button_class_lower) or ("kxgbps" in parent_html) or ("kxgbps" in (parent_class_lower if 'parent_class_lower' in locals() else ""))
+                    has_instock_by_class = ("lbblEr".lower() in button_class_lower) or ("lbblEr".lower() in parent_html)
                     
-                    print(f"[DEBUG] Stradivarius beden '{size_label}' - disabled={is_disabled}, stock-none={has_stock_none}, similar_products={has_similar_products}, notify_me={has_notify_me}")
+                    print(f"[DEBUG] Stradivarius beden '{size_label}' - disabled={is_disabled}, stock-none={has_stock_none}, similar_products={has_similar_products}, notify_me={has_notify_me}, oosByClass={has_oos_by_class}, inByClass={has_instock_by_class}")
                     
                     if is_disabled:
                         print(f"[DEBUG] ❌ Stradivarius beden '{size_label}' stokta değil (disabled attribute)")
                         continue
                     elif has_stock_none:
                         print(f"[DEBUG] ❌ Stradivarius beden '{size_label}' stokta değil (data-cy='grid-product-size-stock-none')")
+                        continue
+                    elif has_oos_by_class:
+                        print(f"[DEBUG] ❌ Stradivarius beden '{size_label}' stokta değil (class heuristic)")
                         continue
                     elif has_similar_products:
                         print(f"[DEBUG] ❌ Stradivarius beden '{size_label}' stokta değil ('benzer ürünleri görüntüle' text'i bulundu)")
