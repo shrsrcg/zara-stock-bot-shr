@@ -472,6 +472,7 @@ if __name__ == "__main__":
                     log.info("[SCRAPER RAW] store=%s found=%s", store, found_sizes)
                     
                     # 2) DOM teyidi (REQUIRE_DOM_CONFIRM kontrolü ile)
+                    # NOT: H&M ve Mango için DOM-CONFIRM atlanıyor çünkü özel scraper fonksiyonları zaten doğru çalışıyor
                     enabled_dom_sizes = []
                     if REQUIRE_DOM_CONFIRM:
                         if store == "zara":
@@ -479,6 +480,10 @@ if __name__ == "__main__":
                         elif store == "bershka":
                             # Bershka için dom kontrolü için aynı genel fonksiyonu kullan
                             enabled_dom_sizes = get_enabled_size_buttons(driver)
+                        elif store in ["hm", "h&m", "mango"]:
+                            # H&M ve Mango için DOM-CONFIRM kullanma - özel scraper fonksiyonları zaten doğru çalışıyor
+                            log.info("[DOM-CONFIRM] H&M/Mango için DOM-CONFIRM atlanıyor (özel scraper kullanılıyor)")
+                            enabled_dom_sizes = []  # Boş liste = filtreleme yok
                         else:
                             enabled_dom_sizes = get_enabled_size_buttons(driver)
                         
@@ -489,6 +494,8 @@ if __name__ == "__main__":
                             upper_dom = {x.upper() for x in enabled_dom_sizes}
                             found_sizes = [s for s in found_sizes if s.upper() in upper_dom]
                             log.info("[DOM-CONFIRM] Filtrelenmiş found_sizes=%s", found_sizes)
+                        else:
+                            log.info("[DOM-CONFIRM] enabled_dom_sizes boş - filtreleme yok, scraper sonucu doğrudan kullanılıyor")
 
                     # 3) Fallback TAMAMEN KAPALI - Sadece helpers'a güveniyoruz
                     # JSON fallback yanlış pozitif riski çok yüksek, artık kullanmıyoruz
