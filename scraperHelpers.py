@@ -205,3 +205,266 @@ def check_stock_bershka(driver, sizes_to_check):
         import traceback
         print(f"[DEBUG] Hata detayı:\n{traceback.format_exc()}")
         return []
+
+
+# ------------------------------------------------------------
+# H&M: link-bazlı beden kontrolü
+# ------------------------------------------------------------
+def check_stock_hm(driver, sizes_to_check):
+    """
+    Girdi  : driver, sizes_to_check (örn: ["XS","S","M"])
+    Çıktı  : stokta bulunan bedenler (list[str]); yoksa [].
+    Hata   : None
+    Notlar :
+      - aria-label içinde "stokta" varsa stok var
+      - aria-label içinde "stokta yok" varsa stok yok
+      - Eşleşme case-insensitive yapılır.
+    """
+    try:
+        wait = WebDriverWait(driver, 25)
+        
+        # Cookie popup kontrolü (gerekirse)
+        try:
+            cookie_button = driver.find_elements(By.CSS_SELECTOR, "button[id*='onetrust'], button[id*='cookie']")
+            if cookie_button:
+                cookie_button[0].click()
+                print("[DEBUG] H&M cookie popup kapatıldı")
+                time.sleep(1)
+        except:
+            pass
+        
+        # Size selector'ın yüklenmesini bekle
+        try:
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-testid^='sizebutton-'], div[role='radio'][aria-label*='beden']")))
+            print("[DEBUG] H&M size selector görüldü")
+            time.sleep(1)
+        except TimeoutException:
+            print("[DEBUG] H&M size selector görünmedi")
+            return []
+        
+        # Size elementlerini bul
+        size_selectors = [
+            "div[data-testid^='sizebutton-']",
+            "div[role='radio'][aria-label*='beden']",
+            "li div[role='radio']"
+        ]
+        
+        size_elements = []
+        for sel in size_selectors:
+            try:
+                found = driver.find_elements(By.CSS_SELECTOR, sel)
+                if found:
+                    print(f"[DEBUG] H&M {len(found)} size element bulundu (selector: {sel})")
+                    size_elements = found
+                    break
+            except:
+                continue
+        
+        if not size_elements:
+            print("[DEBUG] H&M size element bulunamadı")
+            return []
+        
+        wanted = set(x.strip().upper() for x in (sizes_to_check or []))
+        in_stock = []
+        
+        for element in size_elements:
+            try:
+                # Size text'i bul (div[dir="ltr"] içinde veya textContent'te)
+                try:
+                    size_text_elem = element.find_element(By.CSS_SELECTOR, "div[dir='ltr']")
+                    size_label = size_text_elem.text.strip().upper()
+                except:
+                    # Fallback: direkt textContent
+                    size_label = element.text.strip().upper()
+                
+                if not size_label:
+                    continue
+                
+                # Normalize (trim whitespace)
+                size_label = size_label.replace("\xa0", " ").strip().upper()
+                
+                # İstenen beden kontrolü
+                if not wanted or size_label in wanted:
+                    # aria-label kontrolü ile stok durumu tespit et
+                    aria_label = element.get_attribute("aria-label") or ""
+                    aria_label_lower = aria_label.lower()
+                    
+                    # H&M stok kontrolü: aria-label içinde "stokta" varsa stok var
+                    # "stokta yok" veya "benzer ürünleri görmek" varsa stok yok
+                    if "stokta yok" in aria_label_lower or "benzer ürünleri görmek" in aria_label_lower:
+                        print(f"[DEBUG] ❌ H&M beden '{size_label}' stokta değil (aria-label: {aria_label[:50]})")
+                        continue
+                    elif "stokta" in aria_label_lower:
+                        print(f"[DEBUG] ✅ H&M beden '{size_label}' stokta!")
+                        in_stock.append(size_label)
+                    else:
+                        # aria-label belirsizse, disabled kontrolü yap
+                        if element.get_attribute("aria-disabled") == "true":
+                            print(f"[DEBUG] ❌ H&M beden '{size_label}' disabled")
+                            continue
+                        else:
+                            print(f"[DEBUG] ✅ H&M beden '{size_label}' stokta (belirsiz ama disabled değil)")
+                            in_stock.append(size_label)
+                            
+            except Exception as e:
+                print(f"[DEBUG] H&M size element işlenirken hata: {e}")
+                continue
+        
+        if in_stock:
+            print(f"[DEBUG] ✅ H&M toplam {len(in_stock)} beden stokta: {in_stock}")
+        else:
+            print(f"[DEBUG] H&M istenen bedenler stokta değil: {list(wanted)}")
+        
+        return in_stock
+        
+    except Exception as e:
+        print(f"[DEBUG] check_stock_hm genel hatası: {e}")
+        import traceback
+        print(f"[DEBUG] Hata detayı:\n{traceback.format_exc()}")
+        return []
+
+
+# ------------------------------------------------------------
+# MANGO: link-bazlı beden kontrolü
+# ------------------------------------------------------------
+def check_stock_mango(driver, sizes_to_check):
+    """
+    Girdi  : driver, sizes_to_check (örn: ["XS","S","M"])
+    Çıktı  : stokta bulunan bedenler (list[str]); yoksa [].
+    Hata   : None
+    Notlar :
+      - SizeItemContent_notAvailable__2WJ__ class'ı varsa stok YOK
+      - SizeItem_selectable__J5zws class'ı varsa stok VAR
+      - "notify-availability" veya "beni haberdar et" popup'ı varsa stok YOK
+      - Eşleşme case-insensitive yapılır.
+    """
+    try:
+        wait = WebDriverWait(driver, 25)
+        
+        # Cookie popup kontrolü (gerekirse)
+        try:
+            cookie_button = driver.find_elements(By.CSS_SELECTOR, "button[id*='onetrust'], button[id*='cookie'], button[class*='cookie']")
+            if cookie_button:
+                cookie_button[0].click()
+                print("[DEBUG] Mango cookie popup kapatıldı")
+                time.sleep(1)
+        except:
+            pass
+        
+        # Size selector'ın yüklenmesini bekle
+        try:
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "button.sizeitem_sizeitem__7vipk, li.sizeslist_listitem__usajg")))
+            print("[DEBUG] Mango size selector görüldü")
+            time.sleep(1.5)  # Dinamik class güncellemeleri için bekle
+        except TimeoutException:
+            print("[DEBUG] Mango size selector görünmedi")
+            return []
+        
+        # Size elementlerini bul (button elementlerini al, tekrar edenleri filtrele)
+        size_selectors = [
+            "li.sizeslist_listitem__usajg button.sizeitem_sizeitem__7vipk",
+            "button.sizeitem_sizeitem__7vipk",
+            "button[id^='pdp.productinfo.sizeselector.size']"
+        ]
+        
+        size_elements = []
+        seen_texts = set()
+        
+        for sel in size_selectors:
+            try:
+                found = driver.find_elements(By.CSS_SELECTOR, sel)
+                if found:
+                    # Tekrar edenleri filtrele
+                    for el in found:
+                        try:
+                            size_text_elem = el.find_element(By.CSS_SELECTOR, "span.textactionm_classname__8mcjk")
+                            size_text = size_text_elem.text.strip().upper()
+                            if size_text and size_text not in seen_texts:
+                                seen_texts.add(size_text)
+                                size_elements.append(el)
+                        except:
+                            # Fallback: direkt textContent
+                            size_text = el.text.strip().upper()
+                            if size_text and size_text not in seen_texts:
+                                seen_texts.add(size_text)
+                                size_elements.append(el)
+                    
+                    if size_elements:
+                        print(f"[DEBUG] Mango {len(size_elements)} benzersiz size element bulundu (selector: {sel})")
+                        break
+            except:
+                continue
+        
+        if not size_elements:
+            print("[DEBUG] Mango size element bulunamadı")
+            return []
+        
+        wanted = set(x.strip().upper() for x in (sizes_to_check or []))
+        in_stock = []
+        
+        for button in size_elements:
+            try:
+                # Size text'i bul
+                try:
+                    size_text_elem = button.find_element(By.CSS_SELECTOR, "span.textactionm_classname__8mcjk")
+                    size_label = size_text_elem.text.strip().upper()
+                except:
+                    size_label = button.text.strip().upper()
+                
+                if not size_label:
+                    continue
+                
+                # İstenen beden kontrolü
+                if not wanted or size_label in wanted:
+                    # Class kontrolü ile stok durumu tespit et
+                    class_attr = button.get_attribute("class") or ""
+                    class_lower = class_attr.lower()
+                    
+                    # Mango stok kontrolü:
+                    # - SizeItemContent_notAvailable__2WJ__ varsa → stok YOK
+                    # - SizeItem_selectable__J5zws varsa → stok VAR
+                    # - "notify-availability" veya popup varsa → stok YOK
+                    
+                    html_lower = (button.get_attribute("outerHTML") or "").lower()
+                    
+                    if "notavailable" in class_lower or "not-available" in class_lower:
+                        print(f"[DEBUG] ❌ Mango beden '{size_label}' stokta değil (notAvailable class)")
+                        continue
+                    elif "notify-availability" in html_lower or "beni haberdar et" in html_lower:
+                        print(f"[DEBUG] ❌ Mango beden '{size_label}' stokta değil (notify popup)")
+                        continue
+                    elif "selectable" in class_lower and "notavailable" not in class_lower:
+                        print(f"[DEBUG] ✅ Mango beden '{size_label}' stokta!")
+                        in_stock.append(size_label)
+                    elif button.get_attribute("disabled") or button.get_attribute("aria-disabled") == "true":
+                        print(f"[DEBUG] ❌ Mango beden '{size_label}' disabled")
+                        continue
+                    else:
+                        # Belirsiz durum - selectable class var mı kontrol et
+                        try:
+                            parent_li = button.find_element(By.XPATH, "./ancestor::li[1]")
+                            parent_class = (parent_li.get_attribute("class") or "").lower()
+                            if "selectable" in parent_class or "selectable" in class_lower:
+                                print(f"[DEBUG] ✅ Mango beden '{size_label}' stokta (belirsiz ama selectable)")
+                                in_stock.append(size_label)
+                            else:
+                                print(f"[DEBUG] ❌ Mango beden '{size_label}' stokta değil (belirsiz)")
+                        except:
+                            print(f"[DEBUG] ❌ Mango beden '{size_label}' stokta değil (belirsiz)")
+                        
+            except Exception as e:
+                print(f"[DEBUG] Mango size element işlenirken hata: {e}")
+                continue
+        
+        if in_stock:
+            print(f"[DEBUG] ✅ Mango toplam {len(in_stock)} beden stokta: {in_stock}")
+        else:
+            print(f"[DEBUG] Mango istenen bedenler stokta değil: {list(wanted)}")
+        
+        return in_stock
+        
+    except Exception as e:
+        print(f"[DEBUG] check_stock_mango genel hatası: {e}")
+        import traceback
+        print(f"[DEBUG] Hata detayı:\n{traceback.format_exc()}")
+        return []
