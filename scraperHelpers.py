@@ -291,7 +291,7 @@ def check_stock_hm(driver, sizes_to_check):
                 break
             except TimeoutException:
                 continue
-        
+
         if not selector_found:
             print("[DEBUG] H&M wait selector bulunamadı, yine de size element aramaya devam ediliyor...")
             time.sleep(2)  # Yine de biraz bekle
@@ -347,7 +347,7 @@ def check_stock_hm(driver, sizes_to_check):
             except Exception as e:
                 print(f"[DEBUG] H&M selector '{sel}' hatası: {e}")
                 continue
-        
+
         print(f"[DEBUG] H&M toplam {len(all_found_elements)} element toplandı (tüm selector'lardan)")
         
         # Şimdi tüm elementleri filtrele
@@ -388,7 +388,7 @@ def check_stock_hm(driver, sizes_to_check):
             except Exception as inner_e:
                 print(f"[DEBUG] H&M element işlenirken hata: {inner_e}")
                 continue
-        
+
         if filtered:
             print(f"[DEBUG] H&M toplam {len(filtered)} benzersiz size element bulundu: {sorted(seen_size_labels)}")
             size_elements = filtered
@@ -683,6 +683,177 @@ def check_stock_mango(driver, sizes_to_check):
         
     except Exception as e:
         print(f"[DEBUG] check_stock_mango genel hatası: {e}")
+        import traceback
+        print(f"[DEBUG] Hata detayı:\n{traceback.format_exc()}")
+        return []
+
+
+# ------------------------------------------------------------
+# STRADIVARIUS: link-bazlı beden kontrolü
+# ------------------------------------------------------------
+def check_stock_stradivarius(driver, sizes_to_check):
+    """
+    Girdi  : driver, sizes_to_check (örn: ["XS","S","M"])
+    Çıktı  : stokta bulunan bedenler (list[str]); yoksa [].
+    Hata   : []
+    Notlar :
+      - li > button[data-cy="product-normal-size-button"] yapısında
+      - disabled attribute varsa → stok YOK
+      - data-cy="grid-product-size-stock-none" varsa → stok YOK
+      - Eşleşme case-insensitive yapılır.
+    """
+    try:
+        wait = WebDriverWait(driver, 25)
+        
+        # Sayfayı kaydır (lazy-load için)
+        try:
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.4);")
+            time.sleep(2)
+        except:
+            pass
+        
+        # Cookie popup kontrolü (gerekirse)
+        try:
+            cookie_button = driver.find_elements(By.CSS_SELECTOR, "button[id*='onetrust'], button[id*='cookie'], button[class*='cookie']")
+            if cookie_button:
+                cookie_button[0].click()
+                print("[DEBUG] Stradivarius cookie popup kapatıldı")
+                time.sleep(1)
+        except:
+            pass
+        
+        # Size selector'ın yüklenmesini bekle
+        wait_selectors = [
+            "button[data-cy='product-normal-size-button']",
+            "li button[data-cy='product-normal-size-button']",
+            "button[id*='size-button-']",
+            "li[aria-label]"
+        ]
+        
+        selector_found = False
+        for wait_sel in wait_selectors:
+            try:
+                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, wait_sel)))
+                print(f"[DEBUG] Stradivarius size selector görüldü (wait selector: {wait_sel})")
+                selector_found = True
+                time.sleep(2)  # Element'lerin tam yüklenmesi için
+                break
+            except TimeoutException:
+                continue
+        
+        if not selector_found:
+            print("[DEBUG] Stradivarius size selector görünmedi - tüm wait selector'lar denendi")
+            time.sleep(2)  # Yine de biraz bekle
+        
+        # Size elementlerini bul - Analiz sonuçlarına göre: li > button[data-cy="product-normal-size-button"]
+        size_selectors = [
+            "li button[data-cy='product-normal-size-button']",  # EN ÖNEMLİ: Analiz sonuçlarına göre
+            "button[data-cy='product-normal-size-button']",  # Direkt button
+            "li button[id*='size-button-']",  # ID ile
+            "button[id*='size-button-']",  # Direkt ID
+            "li[aria-label] button"  # li aria-label ile
+        ]
+        
+        size_elements = []
+        seen_size_labels = set()
+        
+        for sel in size_selectors:
+            try:
+                found = driver.find_elements(By.CSS_SELECTOR, sel)
+                print(f"[DEBUG] Stradivarius selector '{sel}' ile {len(found)} element bulundu")
+                if found:
+                    for button in found:
+                        try:
+                            # Beden text'i bul - analiz sonuçlarına göre div.sc-hoLldG içinde
+                            try:
+                                # Önce div.sc-hoLldG içinde ara
+                                size_div = button.find_element(By.CSS_SELECTOR, "div.sc-hoLldG, div[class*='hoLldG']")
+                                size_label = size_div.text.strip().upper()
+                            except:
+                                # Fallback 1: li'nin aria-label'ından
+                                try:
+                                    parent_li = button.find_element(By.XPATH, "./ancestor::li[1]")
+                                    size_label = (parent_li.get_attribute("aria-label") or "").strip().upper()
+                                except:
+                                    # Fallback 2: direkt button text
+                                    size_label = button.text.strip().upper()
+                            
+                            if size_label and (size_label in ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL'] or (size_label.isdigit() and 28 <= int(size_label) <= 50)):
+                                # Tekrar edenleri filtrele
+                                if size_label not in seen_size_labels:
+                                    seen_size_labels.add(size_label)
+                                    size_elements.append(button)
+                                    print(f"[DEBUG] Stradivarius beden bulundu: '{size_label}' (button id: {button.get_attribute('id')})")
+                        except Exception as inner_e:
+                            print(f"[DEBUG] Stradivarius button işlenirken hata: {inner_e}")
+                            continue
+                    
+                    if size_elements:
+                        print(f"[DEBUG] Stradivarius {len(size_elements)} benzersiz size element bulundu (selector: {sel})")
+                        break
+            except Exception as e:
+                print(f"[DEBUG] Stradivarius selector '{sel}' hatası: {e}")
+                continue
+        
+        if not size_elements:
+            print("[DEBUG] Stradivarius size element bulunamadı")
+            return []
+        
+        wanted = set(x.strip().upper() for x in (sizes_to_check or []))
+        in_stock = []
+        
+        for button in size_elements:
+            try:
+                # Beden text'ini tekrar al
+                try:
+                    size_div = button.find_element(By.CSS_SELECTOR, "div.sc-hoLldG, div[class*='hoLldG']")
+                    size_label = size_div.text.strip().upper()
+                except:
+                    try:
+                        parent_li = button.find_element(By.XPATH, "./ancestor::li[1]")
+                        size_label = (parent_li.get_attribute("aria-label") or "").strip().upper()
+                    except:
+                        size_label = button.text.strip().upper()
+                
+                if not size_label:
+                    continue
+                
+                # İstenen beden kontrolü
+                if not wanted or size_label in wanted:
+                    # Stradivarius stok kontrolü - Analiz sonuçlarına göre:
+                    # 1. disabled attribute varsa → stok YOK
+                    # 2. data-cy="grid-product-size-stock-none" varsa → stok YOK
+                    # 3. Yoksa → stok VAR
+                    
+                    is_disabled = button.get_attribute("disabled") is not None
+                    html_lower = (button.get_attribute("outerHTML") or "").lower()
+                    
+                    # data-cy="grid-product-size-stock-none" kontrolü
+                    has_stock_none = "grid-product-size-stock-none" in html_lower or "stock-none" in html_lower
+                    
+                    if is_disabled:
+                        print(f"[DEBUG] ❌ Stradivarius beden '{size_label}' stokta değil (disabled attribute)")
+                        continue
+                    elif has_stock_none:
+                        print(f"[DEBUG] ❌ Stradivarius beden '{size_label}' stokta değil (data-cy='grid-product-size-stock-none')")
+                        continue
+                    else:
+                        print(f"[DEBUG] ✅ Stradivarius beden '{size_label}' stokta!")
+                        in_stock.append(size_label)
+                        
+            except Exception as e:
+                print(f"[DEBUG] Stradivarius button işlenirken hata: {e}")
+                continue
+        
+        if in_stock:
+            print(f"[DEBUG] ✅ Stradivarius toplam {len(in_stock)} beden stokta: {in_stock}")
+        else:
+            print(f"[DEBUG] Stradivarius istenen bedenler stokta değil: {list(wanted)}")
+        
+        return in_stock
+        
+    except Exception as e:
+        print(f"[DEBUG] check_stock_stradivarius genel hatası: {e}")
         import traceback
         print(f"[DEBUG] Hata detayı:\n{traceback.format_exc()}")
         return []
