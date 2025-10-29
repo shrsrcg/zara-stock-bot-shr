@@ -84,36 +84,54 @@ def check_stock_zara(driver, sizes_to_check):
             except:
                 continue
         
-        # 2) Container varsa içindeki butonları al, yoksa genel arama yap
+        # 2) Container varsa içindeki elementleri al (button, div, span, li hepsi olabilir)
         if size_container:
-            # Container içinde spesifik selector'lar dene
-            container_button_selectors = [
+            # Container içindeki TÜM tıklanabilir elementleri bul
+            all_elements_selectors = [
+                # Önce spesifik button'lar
                 "button[data-qa-action='size-in-stock']",
                 "button[data-qa-action*='in-stock']",
-                "button[data-qa-action*='low-on-stock']",
                 "li.size-selector-sizes-size--enabled button",
-                "button:not([aria-disabled='true']):not([disabled])",
+                # Sonra tüm button'lar
                 "button",
+                # Belki button değil, div/span olabilir
+                "div[role='button']",
+                "span[role='button']",
+                "li[role='button']",
+                # Direkt clickable elementler
+                "div[class*='size'][class*='enabled']",
+                "span[class*='size'][class*='enabled']",
+                "li[class*='size']",
+                # En genel: container içindeki her şey
+                "*",
             ]
             
-            for sel in container_button_selectors:
+            for sel in all_elements_selectors:
                 try:
                     found = size_container.find_elements(By.CSS_SELECTOR, sel)
                     if found:
+                        print(f"[DEBUG] Container içinde '{sel}' ile {len(found)} element bulundu")
                         # Text ile filtrele - sadece gerçek bedenleri al
                         filtered = []
-                        for btn in found:
-                            txt = _safe_text(btn).strip().upper()
+                        for elem in found:
+                            txt = _safe_text(elem).strip().upper()
                             # Beden pattern kontrolü
                             if txt and len(txt) <= 3:
                                 if txt in ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'] or (txt.isdigit() and 28 <= int(txt) <= 50):
-                                    filtered.append(btn)
+                                    # Disabled kontrolü
+                                    cls = (elem.get_attribute("class") or "").lower()
+                                    aria_disabled = (elem.get_attribute("aria-disabled") or "").lower()
+                                    disabled = ("disabled" in cls) or (aria_disabled == "true") or (elem.get_attribute("disabled") is not None)
+                                    if not disabled:
+                                        filtered.append(elem)
+                                        print(f"[DEBUG] Container'da beden bulundu: '{txt}' (element: {elem.tag_name}, cls: {cls[:50]})")
                         
                         if filtered:
-                            print(f"[DEBUG] Container içinde '{sel}' ile {len(filtered)} beden butonu bulundu")
+                            print(f"[DEBUG] ✅ Container içinde toplam {len(filtered)} beden element bulundu")
                             buttons = filtered
                             break
-                except:
+                except Exception as e:
+                    print(f"[DEBUG] Container selector '{sel}' hatası: {e}")
                     continue
         else:
             # Container bulunamadı - spesifik size selector'ları dene (sayfa genelinde)
