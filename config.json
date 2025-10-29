@@ -1,9 +1,9 @@
 {
   "urls": [
     {
-      "url": "https://www.zara.com/tr/tr/trf-high-rise-wide-leg-jean-p05575029.html?v1=470151992",
-      "store": "zara",
-      "sizes": ["34", "36"]
+      "url": "https://www.oysho.com/tr/compressive-raise-up-yuksek-belli-ispanyol-paca-pantolon-l31255254?colorId=780&pelement=191558212&categoryId=0",
+      "store": "oysho",
+      "sizes": ["S", "M"]
     },
     {
       "url": "https://www2.hm.com/tr_tr/productpage.1298486001.html",
@@ -16,9 +16,9 @@
       "sizes": ["S", "XS"]
     },
     {
-      "url": "https://www.oysho.com/tr/compressive-raise-up-yuksek-belli-ispanyol-paca-pantolon-l31255254?colorId=780&pelement=191558212&categoryId=0",
-      "store": "oysho",
-      "sizes": ["S", "M"]
+      "url": "https://www.zara.com/tr/tr/trf-high-rise-wide-leg-jean-p05575029.html?v1=470151992",
+      "store": "zara",
+      "sizes": ["34", "36"]
     }
   ],
   "sleep_min_seconds": 20,
