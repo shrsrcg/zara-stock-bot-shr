@@ -470,9 +470,26 @@ def check_stock_hm(driver, sizes_to_check):
                 # Belki başka bir format var?
                 if "aria-label" in page_lower and "beden" in page_lower:
                     print("[DEBUG] H&M HTML'de 'aria-label' ve 'beden' kelimesi var, belki farklı format")
+                    # Aria-label içinde beden geçen element sayısını kontrol et
+                    aria_beden_elements = driver.find_elements(By.CSS_SELECTOR, "*[aria-label*='beden'], *[aria-label*='Beden']")
+                    print(f"[DEBUG] H&M aria-label'da 'beden' geçen {len(aria_beden_elements)} element var")
+                    if aria_beden_elements:
+                        # İlk birkaç elementin aria-label'ını göster
+                        for i, el in enumerate(aria_beden_elements[:3]):
+                            aria_val = el.get_attribute("aria-label") or ""
+                            print(f"[DEBUG] H&M örnek aria-label[{i}]: {aria_val[:100]}")
+                
                 if "role=\"radio\"" in page_lower or "role='radio'" in page_lower:
                     radio_count = page_text.count("role=\"radio\"") + page_text.count("role='radio'")
                     print(f"[DEBUG] H&M HTML'de {radio_count} tane role='radio' elementi var")
+                    # Role radio olan elementleri kontrol et
+                    radio_elements = driver.find_elements(By.CSS_SELECTOR, "[role='radio'], [role=\"radio\"]")
+                    print(f"[DEBUG] H&M {len(radio_elements)} role='radio' elementi bulundu")
+                    if radio_elements:
+                        for i, el in enumerate(radio_elements[:3]):
+                            aria_val = el.get_attribute("aria-label") or ""
+                            el_id = el.get_attribute("id") or ""
+                            print(f"[DEBUG] H&M örnek radio[{i}]: id={el_id[:50]}, aria-label={aria_val[:80]}")
             except Exception as debug_e:
                 print(f"[DEBUG] H&M debug hatası: {debug_e}")
             return []
@@ -813,26 +830,64 @@ def check_stock_stradivarius(driver, sizes_to_check):
                 if found:
                     for button in found:
                         try:
+                            size_label = None
                             # Beden text'i bul - analiz sonuçlarına göre div.sc-hoLldG içinde
                             try:
                                 # Önce div.sc-hoLldG içinde ara
                                 size_div = button.find_element(By.CSS_SELECTOR, "div.sc-hoLldG, div[class*='hoLldG']")
                                 size_label = size_div.text.strip().upper()
-                            except:
+                                if not size_label:
+                                    raise NoSuchElementException("Empty text in div.sc-hoLldG")
+                            except (NoSuchElementException, Exception) as e1:
                                 # Fallback 1: li'nin aria-label'ından
                                 try:
                                     parent_li = button.find_element(By.XPATH, "./ancestor::li[1]")
-                                    size_label = (parent_li.get_attribute("aria-label") or "").strip().upper()
-                                except:
+                                    aria_label_raw = parent_li.get_attribute("aria-label") or ""
+                                    if aria_label_raw:
+                                        # "XS beden" veya "32 beden" formatından sadece beden kısmını al
+                                        import re
+                                        match = re.search(r'^(\w+)\s*beden', aria_label_raw.strip(), re.IGNORECASE)
+                                        if match:
+                                            size_label = match.group(1).strip().upper()
+                                        else:
+                                            size_label = aria_label_raw.strip().upper()
+                                except Exception as e2:
                                     # Fallback 2: direkt button text
-                                    size_label = button.text.strip().upper()
+                                    button_text = button.text.strip().upper()
+                                    if button_text:
+                                        size_label = button_text
                             
-                            if size_label and (size_label in ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL'] or (size_label.isdigit() and 28 <= int(size_label) <= 50)):
+                            # Debug: bulunan text'i göster
+                            if not size_label:
+                                button_html = (button.get_attribute("outerHTML") or "")[:150]
+                                print(f"[DEBUG] Stradivarius button text bulunamadı (html: {button_html}...)")
+                                continue
+                            
+                            # Text temizleme: gereksiz karakterleri kaldır
+                            size_label = size_label.replace("\xa0", " ").strip().upper()
+                            
+                            # Beden formatı kontrolü (daha esnek)
+                            is_valid_size = False
+                            if size_label in ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL']:
+                                is_valid_size = True
+                            elif size_label.isdigit() and 28 <= int(size_label) <= 50:
+                                is_valid_size = True
+                            elif len(size_label) <= 3:  # Kısa text'ler de geçerli olabilir (38, 40, vs)
+                                try:
+                                    int(size_label)
+                                    if 28 <= int(size_label) <= 50:
+                                        is_valid_size = True
+                                except:
+                                    pass
+                            
+                            if is_valid_size:
                                 # Tekrar edenleri filtrele
                                 if size_label not in seen_size_labels:
                                     seen_size_labels.add(size_label)
                                     size_elements.append(button)
                                     print(f"[DEBUG] Stradivarius beden bulundu: '{size_label}' (button id: {button.get_attribute('id')})")
+                            else:
+                                print(f"[DEBUG] Stradivarius geçersiz beden formatı: '{size_label}'")
                         except Exception as inner_e:
                             print(f"[DEBUG] Stradivarius button işlenirken hata: {inner_e}")
                             continue
