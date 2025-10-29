@@ -244,7 +244,53 @@ def check_stock_zara(driver, sizes_to_check):
             except Exception as e:
                 print(f"[DEBUG] Genel arama hatası: {e}")
 
+        # 3) Eğer hiç buton bulunamadıysa, JSON fallback'i dene
         if not buttons:
+            print("[DEBUG] Hiç buton bulunamadı, JSON fallback deneniyor...")
+            try:
+                import re
+                sizes = set()
+                scripts = driver.find_elements(By.CSS_SELECTOR, "script")
+                print(f"[DEBUG] JSON fallback: {len(scripts)} script tag bulundu")
+                for s in scripts:
+                    try:
+                        blob = s.get_attribute("innerHTML") or ""
+                    except:
+                        blob = ""
+                    if not blob:
+                        continue
+                    if not any(k in blob for k in ["sizes", "availability", "variants", "skus", "inStock", "stock"]):
+                        continue
+
+                    # Sadece inStock=true olan bedenleri al
+                    for m in re.finditer(r'"(size|name|sizeCode|value)"\s*:\s*"([^"]{1,12})".{0,300}?"(availability|inStock)"\s*:\s*(true|"inStock"|"available"|"in-stock")',
+                                         blob, re.IGNORECASE | re.DOTALL):
+                        sizes.add(m.group(2))
+                    
+                    for m in re.finditer(r'"(size|name|sizeCode)"\s*:\s*"([^"]{1,12})".{0,300}?"data-qa-action"\s*:\s*"[^"]*size-in-stock[^"]*"',
+                                         blob, re.IGNORECASE | re.DOTALL):
+                        sizes.add(m.group(2))
+                    
+                    for m in re.finditer(r'"(size|name|sizeCode|value)"\s*:\s*"([^"]{1,12})".{0,200}?"(isEnabled|enabled)"\s*:\s*true',
+                                         blob, re.IGNORECASE | re.DOTALL):
+                        sizes.add(m.group(2))
+
+                if sizes:
+                    print(f"[DEBUG] JSON fallback ile {len(sizes)} beden bulundu: {list(sizes)[:10]}")
+                    # JSON'dan gelen bedenleri istenen bedenlerle eşleştir
+                    wanted = set(x.strip().upper() for x in (sizes_to_check or []))
+                    found_sizes = []
+                    for sz in sizes:
+                        sz_upper = sz.strip().upper()
+                        if sz_upper in ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'] or (sz_upper.isdigit() and 28 <= int(sz_upper) <= 50):
+                            if not wanted or sz_upper in wanted:
+                                found_sizes.append(sz_upper)
+                    if found_sizes:
+                        print(f"[DEBUG] JSON fallback: istenen bedenlerle eşleşen {len(found_sizes)} beden var: {found_sizes}")
+                        return found_sizes
+            except Exception as e:
+                print(f"[DEBUG] JSON fallback hatası: {e}")
+            
             return []
 
         # İstenen bedenleri normalize et (case-insensitive)
