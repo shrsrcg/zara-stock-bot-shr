@@ -223,6 +223,13 @@ def check_stock_hm(driver, sizes_to_check):
     try:
         wait = WebDriverWait(driver, 25)
         
+        # Sayfayı kaydır (lazy-load için)
+        try:
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.4);")
+            time.sleep(2)
+        except:
+            pass
+        
         # Cookie popup kontrolü (gerekirse)
         try:
             cookie_button = driver.find_elements(By.CSS_SELECTOR, "button[id*='onetrust'], button[id*='cookie']")
@@ -233,35 +240,73 @@ def check_stock_hm(driver, sizes_to_check):
         except:
             pass
         
-        # Size selector'ın yüklenmesini bekle
-        try:
-            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-testid^='sizebutton-'], div[role='radio'][aria-label*='beden']")))
-            print("[DEBUG] H&M size selector görüldü")
-            time.sleep(1)
-        except TimeoutException:
-            print("[DEBUG] H&M size selector görünmedi")
-            return []
-        
-        # Size elementlerini bul
-        size_selectors = [
+        # Size selector'ın yüklenmesini bekle - daha fazla alternatif selector
+        size_elements = []
+        wait_selectors = [
             "div[data-testid^='sizebutton-']",
             "div[role='radio'][aria-label*='beden']",
-            "li div[role='radio']"
+            "div[id^='sizebutton-']",
+            "li div[role='radio']",
+            "div[data-testid*='size']",
+            "*[aria-label*='beden:']"
         ]
         
-        size_elements = []
+        for wait_sel in wait_selectors:
+            try:
+                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, wait_sel)))
+                print(f"[DEBUG] H&M size selector görüldü (wait selector: {wait_sel})")
+                time.sleep(2)  # Element'lerin tam yüklenmesi için
+                break
+            except TimeoutException:
+                continue
+        
+        # Size elementlerini bul - genişletilmiş selector listesi
+        size_selectors = [
+            "div[data-testid^='sizebutton-']",
+            "div[id^='sizebutton-']",
+            "div[role='radio'][aria-label*='beden']",
+            "div[role='radio']",
+            "li div[role='radio']",
+            "div[data-testid*='size']",
+            "*[aria-label*='beden:']",
+            "li > div[tabindex='0']"
+        ]
+        
         for sel in size_selectors:
             try:
                 found = driver.find_elements(By.CSS_SELECTOR, sel)
                 if found:
-                    print(f"[DEBUG] H&M {len(found)} size element bulundu (selector: {sel})")
-                    size_elements = found
-                    break
+                    # Text içerenleri filtrele (gerçek beden elementleri)
+                    filtered = []
+                    for el in found:
+                        try:
+                            text_elem = el.find_element(By.CSS_SELECTOR, "div[dir='ltr']")
+                            text = text_elem.text.strip().upper()
+                            if text and text in ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL'] or (text.isdigit() and 28 <= int(text) <= 50):
+                                filtered.append(el)
+                        except:
+                            text = el.text.strip().upper()
+                            if text and (text in ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL'] or (text.isdigit() and 28 <= int(text) <= 50)):
+                                filtered.append(el)
+                    
+                    if filtered:
+                        print(f"[DEBUG] H&M {len(filtered)} size element bulundu (selector: {sel})")
+                        size_elements = filtered
+                        break
             except:
                 continue
         
         if not size_elements:
-            print("[DEBUG] H&M size element bulunamadı")
+            print("[DEBUG] H&M size element bulunamadı - tüm selector'lar denendi")
+            # Debug: sayfanın HTML'ini kontrol et
+            try:
+                page_text = driver.page_source[:1000]
+                if "sizebutton" in page_text.lower():
+                    print("[DEBUG] H&M HTML'de 'sizebutton' kelimesi var ama selector bulamadı")
+                else:
+                    print("[DEBUG] H&M HTML'de 'sizebutton' kelimesi yok")
+            except:
+                pass
             return []
         
         wanted = set(x.strip().upper() for x in (sizes_to_check or []))
@@ -341,6 +386,13 @@ def check_stock_mango(driver, sizes_to_check):
     try:
         wait = WebDriverWait(driver, 25)
         
+        # Sayfayı kaydır (lazy-load için)
+        try:
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.4);")
+            time.sleep(2)
+        except:
+            pass
+        
         # Cookie popup kontrolü (gerekirse)
         try:
             cookie_button = driver.find_elements(By.CSS_SELECTOR, "button[id*='onetrust'], button[id*='cookie'], button[class*='cookie']")
@@ -351,20 +403,43 @@ def check_stock_mango(driver, sizes_to_check):
         except:
             pass
         
-        # Size selector'ın yüklenmesini bekle
-        try:
-            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "button.sizeitem_sizeitem__7vipk, li.sizeslist_listitem__usajg")))
-            print("[DEBUG] Mango size selector görüldü")
-            time.sleep(1.5)  # Dinamik class güncellemeleri için bekle
-        except TimeoutException:
-            print("[DEBUG] Mango size selector görünmedi")
-            return []
+        # Size selector'ın yüklenmesini bekle - daha fazla alternatif
+        wait_selectors = [
+            "button.sizeitem_sizeitem__7vipk",
+            "li.sizeslist_listitem__usajg",
+            "button[id^='pdp.productinfo.sizeselector.size']",
+            "button[class*='sizeitem']",
+            "li[class*='sizeslist'] button",
+            "ul[class*='sizes'] button",
+            "button[aria-controls*='size']"
+        ]
+        
+        selector_found = False
+        for wait_sel in wait_selectors:
+            try:
+                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, wait_sel)))
+                print(f"[DEBUG] Mango size selector görüldü (wait selector: {wait_sel})")
+                selector_found = True
+                time.sleep(2.5)  # Dinamik class güncellemeleri için daha uzun bekle
+                break
+            except TimeoutException:
+                continue
+        
+        if not selector_found:
+            print("[DEBUG] Mango size selector görünmedi - tüm wait selector'lar denendi")
+            # Devam et, belki selector'lar farklı
         
         # Size elementlerini bul (button elementlerini al, tekrar edenleri filtrele)
+        # CSS modules class'ları case-sensitive olabilir, o yüzden daha geniş selector'lar kullan
         size_selectors = [
             "li.sizeslist_listitem__usajg button.sizeitem_sizeitem__7vipk",
             "button.sizeitem_sizeitem__7vipk",
-            "button[id^='pdp.productinfo.sizeselector.size']"
+            "button[class*='sizeitem']",
+            "li[class*='sizeslist'] button[class*='sizeitem']",
+            "button[id^='pdp.productinfo.sizeselector.size']",
+            "ul[class*='sizes'] button",
+            "button[aria-controls*='size']",
+            "li button[class*='size']"
         ]
         
         size_elements = []
