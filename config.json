@@ -19,6 +19,11 @@
       "url": "https://shop.mango.com/tr/tr/p/kadin/ceket/bomber-ceket/kurk-yaka-deri-gorunumlu-ceket_17076354",
       "store": "mango",
       "sizes": ["S", "M"]
+    },
+    {
+      "url": "https://www.stradivarius.com/tr/suni-kurk-detayl%C4%B1-ceket-l05707837?colorId=250&pelement=452483326&xs=13&categoryId=1020380512",
+      "store": "stradivarius",
+      "sizes": ["S", "XS"]
     }
   ],
   "sleep_min_seconds": 20,
