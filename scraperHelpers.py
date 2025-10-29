@@ -468,28 +468,40 @@ def check_stock_hm(driver, sizes_to_check):
                     print("[DEBUG] H&M HTML'de 'sizebutton' veya 'sizeButton' kelimesi yok")
                 
                 # Belki başka bir format var?
-                if "aria-label" in page_lower and "beden" in page_lower:
-                    print("[DEBUG] H&M HTML'de 'aria-label' ve 'beden' kelimesi var, belki farklı format")
-                    # Aria-label içinde beden geçen element sayısını kontrol et
-                    aria_beden_elements = driver.find_elements(By.CSS_SELECTOR, "*[aria-label*='beden'], *[aria-label*='Beden']")
-                    print(f"[DEBUG] H&M aria-label'da 'beden' geçen {len(aria_beden_elements)} element var")
-                    if aria_beden_elements:
-                        # İlk birkaç elementin aria-label'ını göster
-                        for i, el in enumerate(aria_beden_elements[:3]):
-                            aria_val = el.get_attribute("aria-label") or ""
-                            print(f"[DEBUG] H&M örnek aria-label[{i}]: {aria_val[:100]}")
+                try:
+                    if "aria-label" in page_lower and "beden" in page_lower:
+                        print("[DEBUG] H&M HTML'de 'aria-label' ve 'beden' kelimesi var, belki farklı format")
+                        # Aria-label içinde beden geçen element sayısını kontrol et
+                        aria_beden_elements = driver.find_elements(By.CSS_SELECTOR, "*[aria-label*='beden'], *[aria-label*='Beden']")
+                        print(f"[DEBUG] H&M aria-label'da 'beden' geçen {len(aria_beden_elements)} element var")
+                        if aria_beden_elements:
+                            # İlk birkaç elementin aria-label'ını göster
+                            for i, el in enumerate(aria_beden_elements[:3]):
+                                try:
+                                    aria_val = el.get_attribute("aria-label") or ""
+                                    print(f"[DEBUG] H&M örnek aria-label[{i}]: {aria_val[:100]}")
+                                except:
+                                    pass
+                except Exception as e:
+                    print(f"[DEBUG] H&M aria-label kontrol hatası: {e}")
                 
-                if "role=\"radio\"" in page_lower or "role='radio'" in page_lower:
-                    radio_count = page_text.count("role=\"radio\"") + page_text.count("role='radio'")
-                    print(f"[DEBUG] H&M HTML'de {radio_count} tane role='radio' elementi var")
-                    # Role radio olan elementleri kontrol et
-                    radio_elements = driver.find_elements(By.CSS_SELECTOR, "[role='radio'], [role=\"radio\"]")
-                    print(f"[DEBUG] H&M {len(radio_elements)} role='radio' elementi bulundu")
-                    if radio_elements:
-                        for i, el in enumerate(radio_elements[:3]):
-                            aria_val = el.get_attribute("aria-label") or ""
-                            el_id = el.get_attribute("id") or ""
-                            print(f"[DEBUG] H&M örnek radio[{i}]: id={el_id[:50]}, aria-label={aria_val[:80]}")
+                try:
+                    if "role=\"radio\"" in page_lower or "role='radio'" in page_lower:
+                        radio_count = page_text.count("role=\"radio\"") + page_text.count("role='radio'")
+                        print(f"[DEBUG] H&M HTML'de {radio_count} tane role='radio' elementi var")
+                        # Role radio olan elementleri kontrol et
+                        radio_elements = driver.find_elements(By.CSS_SELECTOR, "[role='radio'], [role=\"radio\"]")
+                        print(f"[DEBUG] H&M {len(radio_elements)} role='radio' elementi bulundu")
+                        if radio_elements:
+                            for i, el in enumerate(radio_elements[:3]):
+                                try:
+                                    aria_val = el.get_attribute("aria-label") or ""
+                                    el_id = el.get_attribute("id") or ""
+                                    print(f"[DEBUG] H&M örnek radio[{i}]: id={el_id[:50]}, aria-label={aria_val[:80]}")
+                                except:
+                                    pass
+                except Exception as e:
+                    print(f"[DEBUG] H&M role='radio' kontrol hatası: {e}")
             except Exception as debug_e:
                 print(f"[DEBUG] H&M debug hatası: {debug_e}")
             return []
@@ -908,22 +920,36 @@ def check_stock_stradivarius(driver, sizes_to_check):
         
         for button in size_elements:
             try:
+                size_label = None
                 # Beden text'ini tekrar al
                 try:
                     size_div = button.find_element(By.CSS_SELECTOR, "div.sc-hoLldG, div[class*='hoLldG']")
                     size_label = size_div.text.strip().upper()
+                    print(f"[DEBUG] Stradivarius beden text bulundu (div.sc-hoLldG): '{size_label}'")
                 except:
                     try:
                         parent_li = button.find_element(By.XPATH, "./ancestor::li[1]")
-                        size_label = (parent_li.get_attribute("aria-label") or "").strip().upper()
+                        aria_label_raw = parent_li.get_attribute("aria-label") or ""
+                        if aria_label_raw:
+                            # "XS beden" formatından beden çıkar
+                            import re
+                            match = re.search(r'^(\w+)\s*beden', aria_label_raw.strip(), re.IGNORECASE)
+                            if match:
+                                size_label = match.group(1).strip().upper()
+                            else:
+                                size_label = aria_label_raw.strip().upper()
+                        print(f"[DEBUG] Stradivarius beden text bulundu (aria-label): '{size_label}'")
                     except:
                         size_label = button.text.strip().upper()
+                        print(f"[DEBUG] Stradivarius beden text bulundu (button text): '{size_label}'")
                 
                 if not size_label:
+                    print(f"[DEBUG] Stradivarius beden text bulunamadı, button id: {button.get_attribute('id')}")
                     continue
                 
                 # İstenen beden kontrolü
                 if not wanted or size_label in wanted:
+                    print(f"[DEBUG] Stradivarius beden '{size_label}' istenenler arasında, stok kontrol ediliyor...")
                     # Stradivarius stok kontrolü - Analiz sonuçlarına göre:
                     # 1. disabled attribute varsa → stok YOK
                     # 2. data-cy="grid-product-size-stock-none" varsa → stok YOK
@@ -935,6 +961,8 @@ def check_stock_stradivarius(driver, sizes_to_check):
                     # data-cy="grid-product-size-stock-none" kontrolü
                     has_stock_none = "grid-product-size-stock-none" in html_lower or "stock-none" in html_lower
                     
+                    print(f"[DEBUG] Stradivarius beden '{size_label}' - disabled={is_disabled}, stock-none={has_stock_none}")
+                    
                     if is_disabled:
                         print(f"[DEBUG] ❌ Stradivarius beden '{size_label}' stokta değil (disabled attribute)")
                         continue
@@ -944,9 +972,13 @@ def check_stock_stradivarius(driver, sizes_to_check):
                     else:
                         print(f"[DEBUG] ✅ Stradivarius beden '{size_label}' stokta!")
                         in_stock.append(size_label)
+                else:
+                    print(f"[DEBUG] Stradivarius beden '{size_label}' istenenler arasında değil (wanted: {list(wanted)})")
                         
             except Exception as e:
                 print(f"[DEBUG] Stradivarius button işlenirken hata: {e}")
+                import traceback
+                print(f"[DEBUG] Stradivarius hata detayı: {traceback.format_exc()}")
                 continue
         
         if in_stock:
