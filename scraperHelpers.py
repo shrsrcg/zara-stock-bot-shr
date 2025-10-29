@@ -131,25 +131,63 @@ def check_stock_bershka(driver, sizes_to_check):
     Çıktı  : stokta bulunan bedenler (list[str]); yoksa [].
     Hata   : None
     Notlar :
-      - 'is-disabled' sınıfı veya aria-disabled=true olan butonlar stok YOK.
+      - 'is-disabled' sınıfı olan butonlar stok YOK
+      - aria-description="yakında stokta olacak!" = stok YOK
+      - aria-description="az sayıda kaldı!" veya boş = stok VAR
       - Eşleşme case-insensitive yapılır.
     """
     try:
         wait = WebDriverWait(driver, 25)
 
-        # Beden listesi container
+        # Cookie popup kontrolü
         try:
-            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "ul[data-qa-anchor='productDetailSize']")))
-        except TimeoutException:
-            # Bazı sayfalarda farklı kökler olabiliyor, kısa tolerans
-            time.sleep(1)
+            cookie_button = driver.find_elements(By.CSS_SELECTOR, "button[id*='onetrust'], button[id*='cookie'], button[class*='cookie']")
+            if cookie_button:
+                cookie_button[0].click()
+                print("[DEBUG] Bershka cookie popup kapatıldı")
+                time.sleep(1)
+        except:
+            pass
+
+        # Sayfayı kaydır (lazy-load için)
+        try:
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.4);")
+            time.sleep(1.5)
+        except:
+            pass
+
+        # Beden listesi container - Analiz sonuçlarına göre UL container YOK, direkt butonları bulabiliriz
+        wait_selectors = [
+            "button[data-qa-anchor='sizeListItem']",  # camelCase
+            "button[data-qa-anchor='sizelistitem']",  # küçük harf (analiz sonuçlarına göre)
+            "ul[data-qa-anchor='productDetailSize']",  # Container (varsa)
+            "button[role='button'][aria-label*='beden']"  # Fallback
+        ]
+
+        selector_found = False
+        for wait_sel in wait_selectors:
+            try:
+                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, wait_sel)))
+                print(f"[DEBUG] Bershka size selector görüldü (wait selector: {wait_sel})")
+                selector_found = True
+                time.sleep(2)  # Element'lerin tam yüklenmesi için
+                break
+            except TimeoutException:
+                continue
+
+        if not selector_found:
+            print("[DEBUG] Bershka wait selector bulunamadı, yine de size element aramaya devam ediliyor...")
+            time.sleep(2)
 
         # Dinamik class güncellemelerine küçük tolerans
-        time.sleep(1.5)
+        time.sleep(1)
 
+        # Analiz sonuçlarına göre: button[data-qa-anchor="sizelistitem"] (küçük harf) formatında
         button_selectors = [
-            "button[data-qa-anchor='sizeListItem']",
-            "ul[data-qa-anchor='productDetailSize'] button",
+            "button[data-qa-anchor='sizelistitem']",  # EN ÖNEMLİ: Küçük harf (analiz sonuçlarına göre)
+            "button[data-qa-anchor='sizeListItem']",  # camelCase (fallback)
+            "ul[data-qa-anchor='productDetailSize'] button",  # Container içinden
+            "button[role='button'][aria-label*='beden']"  # Genel fallback
         ]
 
         wanted = set(x.strip().upper() for x in (sizes_to_check or []))
@@ -165,22 +203,33 @@ def check_stock_bershka(driver, sizes_to_check):
 
                 for button in buttons:
                     try:
-                        size_label_elem = button.find_element(By.CSS_SELECTOR, "span.text__label")
-                        size_label = size_label_elem.text.strip().upper()
+                        # Beden text'ini bul - analiz sonuçlarına göre span.text__label içinde
+                        try:
+                            size_label_elem = button.find_element(By.CSS_SELECTOR, "span.text__label")
+                            size_label = size_label_elem.text.strip().upper()
+                        except NoSuchElementException:
+                            # Fallback: button text'inden al
+                            size_label = button.text.strip().upper()
+                            # "32" gibi rakamları filtrele
+                            if not size_label or not (size_label in ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL'] or (size_label.isdigit() and 28 <= int(size_label) <= 50)):
+                                continue
 
                         if not wanted or size_label in wanted:
-                            # Class'ın stabilize olmasını bekle
-                            def class_stabilized(driver):
-                                cls = button.get_attribute("class")
-                                return "is-disabled" in cls or "is-disabled" not in cls
-
-                            WebDriverWait(driver, 5).until(class_stabilized)
-
-                            class_attr = button.get_attribute("class")
-                            if "is-disabled" in class_attr:
-                                print(f"[DEBUG] ❌ Bershka beden '{size_label}' stokta değil (is-disabled)")
+                            # Class kontrolü - analiz sonuçlarına göre: "is-disabled" class'ı varsa stok YOK
+                            class_attr = button.get_attribute("class") or ""
+                            
+                            # Aria-description kontrolü - ek kontrol
+                            aria_desc = (button.get_attribute("aria-description") or "").lower()
+                            
+                            # Stok durumu belirleme
+                            if "is-disabled" in class_attr.lower():
+                                print(f"[DEBUG] ❌ Bershka beden '{size_label}' stokta değil (is-disabled class)")
+                                continue
+                            elif "yakında stokta olacak" in aria_desc:
+                                print(f"[DEBUG] ❌ Bershka beden '{size_label}' stokta değil (aria-description: yakında stokta)")
+                                continue
                             else:
-                                print(f"[DEBUG] ✅ Bershka beden '{size_label}' stokta!")
+                                print(f"[DEBUG] ✅ Bershka beden '{size_label}' stokta! (class: {class_attr[:50]}, aria-desc: {aria_desc[:30]})")
                                 in_stock.append(size_label)
                     except NoSuchElementException:
                         continue
@@ -189,13 +238,14 @@ def check_stock_bershka(driver, sizes_to_check):
                         continue
 
                 if in_stock:
+                    print(f"[DEBUG] ✅ Bershka toplam {len(in_stock)} beden stokta: {in_stock}")
                     return in_stock
             except Exception as e:
                 print(f"[DEBUG] Bershka selector '{sel}' hatası: {e}")
                 continue
 
         if not in_stock:
-            print(f"[DEBUG] İstenen Bershka bedenler stokta değil: {list(wanted)}")
+            print(f"[DEBUG] Bershka istenen bedenler stokta değil: {list(wanted)}")
         
         return in_stock
 
@@ -288,7 +338,7 @@ def check_stock_hm(driver, sizes_to_check):
                 selector_found = True
                 # Element'lerin tam yüklenmesi için daha uzun bekle
                 time.sleep(3)
-                break
+                    break
             except TimeoutException:
                 continue
 
@@ -466,12 +516,12 @@ def check_stock_hm(driver, sizes_to_check):
                     # Sadece "stokta" varsa ama "stokta yok" yoksa
                     elif "stokta" in aria_label_lower:
                         print(f"[DEBUG] ✅ H&M beden '{size_label}' stokta! (aria-label: {aria_label[:50]})")
-                        in_stock.append(size_label)
+                    in_stock.append(size_label)
                     else:
                         # aria-label belirsizse, disabled kontrolü yap
                         if element.get_attribute("aria-disabled") == "true":
                             print(f"[DEBUG] ❌ H&M beden '{size_label}' disabled (aria-label yok)")
-                            continue
+                continue
                         else:
                             # Belirsiz durum - varsayılan olarak stokta değil
                             print(f"[DEBUG] ❌ H&M beden '{size_label}' stokta değil (aria-label belirsiz: {aria_label[:50]})")
@@ -510,7 +560,7 @@ def check_stock_mango(driver, sizes_to_check):
     """
     try:
         wait = WebDriverWait(driver, 25)
-        
+
         # Sayfayı kaydır (lazy-load için)
         try:
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.4);")
@@ -547,7 +597,7 @@ def check_stock_mango(driver, sizes_to_check):
                 selector_found = True
                 time.sleep(2.5)  # Dinamik class güncellemeleri için daha uzun bekle
                 break
-            except TimeoutException:
+        except TimeoutException:
                 continue
         
         if not selector_found:
@@ -591,14 +641,14 @@ def check_stock_mango(driver, sizes_to_check):
                     
                     if size_elements:
                         print(f"[DEBUG] Mango {len(size_elements)} benzersiz size element bulundu (selector: {sel})")
-                        break
+                    break
             except:
                 continue
-        
+
         if not size_elements:
             print("[DEBUG] Mango size element bulunamadı")
             return []
-        
+
         wanted = set(x.strip().upper() for x in (sizes_to_check or []))
         in_stock = []
         
@@ -610,10 +660,10 @@ def check_stock_mango(driver, sizes_to_check):
                     size_label = size_text_elem.text.strip().upper()
                 except:
                     size_label = button.text.strip().upper()
-                
+
                 if not size_label:
                     continue
-                
+
                 # İstenen beden kontrolü
                 if not wanted or size_label in wanted:
                     # Mango stok kontrolü - Analiz sonuçlarına göre:
@@ -643,8 +693,8 @@ def check_stock_mango(driver, sizes_to_check):
                     # notify-availability popup kontrolü
                     if "notify-availability" in html_lower or "beni haberdar et" in html_lower:
                         print(f"[DEBUG] ❌ Mango beden '{size_label}' stokta değil (notify popup)")
-                        continue
-                    
+                    continue
+
                     # selectable class kontrolü (button level)
                     if "selectable" in class_lower:
                         print(f"[DEBUG] ✅ Mango beden '{size_label}' stokta! (selectable class)")
@@ -657,15 +707,15 @@ def check_stock_mango(driver, sizes_to_check):
                         parent_class = (parent_li.get_attribute("class") or "").lower()
                         if "selectable" in parent_class:
                             print(f"[DEBUG] ✅ Mango beden '{size_label}' stokta! (parent li'de selectable)")
-                            in_stock.append(size_label)
+                    in_stock.append(size_label)
                             continue
                     except:
                         pass
-                    
+
                     # Disabled kontrolü
                     if button.get_attribute("disabled") or button.get_attribute("aria-disabled") == "true":
                         print(f"[DEBUG] ❌ Mango beden '{size_label}' disabled")
-                        continue
+                continue
                     
                     # Belirsiz durum - varsayılan olarak stokta değil
                     print(f"[DEBUG] ❌ Mango beden '{size_label}' stokta değil (belirsiz, selectable yok)")
@@ -673,14 +723,14 @@ def check_stock_mango(driver, sizes_to_check):
             except Exception as e:
                 print(f"[DEBUG] Mango size element işlenirken hata: {e}")
                 continue
-        
+
         if in_stock:
             print(f"[DEBUG] ✅ Mango toplam {len(in_stock)} beden stokta: {in_stock}")
         else:
             print(f"[DEBUG] Mango istenen bedenler stokta değil: {list(wanted)}")
         
         return in_stock
-        
+
     except Exception as e:
         print(f"[DEBUG] check_stock_mango genel hatası: {e}")
         import traceback
@@ -738,7 +788,7 @@ def check_stock_stradivarius(driver, sizes_to_check):
                 selector_found = True
                 time.sleep(2)  # Element'lerin tam yüklenmesi için
                 break
-            except TimeoutException:
+    except TimeoutException:
                 continue
         
         if not selector_found:
