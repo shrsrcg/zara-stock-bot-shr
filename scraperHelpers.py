@@ -58,47 +58,91 @@ def check_stock_zara(driver, sizes_to_check):
         except Exception:
             pass
 
-        # ZARA SELECTOR'LAR - ChatGPT analizi sonrası güncellendi
-        # Ayakkabı: li.size-selector-sizes-size--enabled > button[data-qa-action="size-in-stock"]
-        # Giyim: benzer yapı
-        button_selectors = [
-            # Öncelikli: ChatGPT'nin bulduğu yapı (ayakkabı)
-            "li.size-selector-sizes-size--enabled button[data-qa-action='size-in-stock']",
-            "li.size-selector-sizes-size--enabled button",
-            
-            # Modern Zara - genel
-            "button[data-qa-action='size-in-stock']",
-            "button[data-qa-action*='in-stock']",
-            "button[data-qa-action*='low-on-stock']", 
-            
-            # Size selector içindeki enabled butonlar
-            "[data-qa='size-selector'] button:not([aria-disabled='true']):not([disabled])",
-            ".size-selector-sizes button:not([aria-disabled='true'])",
-            ".size-selector-sizes-size--enabled button",
-            
-            # Alternatif yapılar
-            "[data-qa-qualifier*='size'] button:not([disabled])",
-            "button.size:not([disabled]):not([aria-disabled='true'])",
-            "li button:not([disabled]):not([aria-disabled='true'])",
-            ".product-detail-size button:not([disabled])",
-            
-            # Data attribute'ları ile
-            "button[data-qa*='size']:not([disabled])",
-            "button[aria-label*='Size']:not([aria-disabled='true'])",
-            "button[aria-label*='Beden']:not([aria-disabled='true'])",
-        ]
+        # ZARA SELECTOR STRATEJİSİ: Önce size selector container'ını bul, sonra içindeki butonları al
+        # Bu yaklaşım yanlış butonları (renk, görsel vb.) seçmeyi engeller
         
         buttons = []
-        for sel in button_selectors:
+        
+        # 1) Size selector container'larını bul
+        size_container_selectors = [
+            "[data-qa='size-selector']",
+            ".size-selector-sizes",
+            "[data-qa-qualifier*='size']",
+            ".product-detail-size",
+            "ul[class*='size']",
+            "div[class*='size-selector']",
+        ]
+        
+        size_container = None
+        for container_sel in size_container_selectors:
             try:
-                found = driver.find_elements(By.CSS_SELECTOR, sel)
-                if found:
-                    print(f"[DEBUG] Selector '{sel}' ile {len(found)} buton bulundu")
-                    buttons = found
+                containers = driver.find_elements(By.CSS_SELECTOR, container_sel)
+                if containers:
+                    print(f"[DEBUG] Size container bulundu: '{container_sel}' ({len(containers)} adet)")
+                    size_container = containers[0]  # İlkini al
                     break
-            except Exception as e:
-                print(f"[DEBUG] Selector '{sel}' hata: {e}")
+            except:
                 continue
+        
+        # 2) Container varsa içindeki butonları al, yoksa genel arama yap
+        if size_container:
+            # Container içinde spesifik selector'lar dene
+            container_button_selectors = [
+                "button[data-qa-action='size-in-stock']",
+                "button[data-qa-action*='in-stock']",
+                "button[data-qa-action*='low-on-stock']",
+                "li.size-selector-sizes-size--enabled button",
+                "button:not([aria-disabled='true']):not([disabled])",
+                "button",
+            ]
+            
+            for sel in container_button_selectors:
+                try:
+                    found = size_container.find_elements(By.CSS_SELECTOR, sel)
+                    if found:
+                        # Text ile filtrele - sadece gerçek bedenleri al
+                        filtered = []
+                        for btn in found:
+                            txt = _safe_text(btn).strip().upper()
+                            # Beden pattern kontrolü
+                            if txt and len(txt) <= 3:
+                                if txt in ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'] or (txt.isdigit() and 28 <= int(txt) <= 50):
+                                    filtered.append(btn)
+                        
+                        if filtered:
+                            print(f"[DEBUG] Container içinde '{sel}' ile {len(filtered)} beden butonu bulundu")
+                            buttons = filtered
+                            break
+                except:
+                    continue
+        else:
+            # Container bulunamadı - spesifik size selector'ları dene (sayfa genelinde)
+            button_selectors = [
+                "button[data-qa-action='size-in-stock']",
+                "button[data-qa-action*='in-stock']",
+                "li.size-selector-sizes-size--enabled button",
+                "[data-qa='size-selector'] button",
+                ".size-selector-sizes button",
+            ]
+            
+            for sel in button_selectors:
+                try:
+                    found = driver.find_elements(By.CSS_SELECTOR, sel)
+                    if found:
+                        # Text ile filtrele
+                        filtered = []
+                        for btn in found:
+                            txt = _safe_text(btn).strip().upper()
+                            if txt and len(txt) <= 3:
+                                if txt in ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'] or (txt.isdigit() and 28 <= int(txt) <= 50):
+                                    filtered.append(btn)
+                        
+                        if filtered:
+                            print(f"[DEBUG] Genel selector '{sel}' ile {len(filtered)} beden butonu bulundu")
+                            buttons = filtered
+                            break
+                except:
+                    continue
 
         # Eğer hala bulamadıysak, daha genel arama
         if not buttons:
