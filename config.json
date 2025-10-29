@@ -6,29 +6,14 @@
       "sizes": ["34", "36"]
     },
     {
-      "url": "https://www.zara.com/tr/tr/asimetrik-yaka-top-p03431631.html?v1=470171968",
-      "store": "zara",
-      "sizes": ["S"]
-    },
-    {
       "url": "https://www2.hm.com/tr_tr/productpage.1298486001.html",
       "store": "hm",
-      "sizes": ["S", "M"]
-    },
-    {
-      "url": "https://shop.mango.com/tr/tr/p/kadin/ceket/bomber-ceket/kurk-yaka-deri-gorunumlu-ceket_17076354",
-      "store": "mango",
       "sizes": ["S", "M"]
     },
     {
       "url": "https://www.stradivarius.com/tr/suni-kurk-detayl%C4%B1-ceket-l05707837?colorId=250&pelement=452483326&xs=13&categoryId=1020380512",
       "store": "stradivarius",
       "sizes": ["S", "XS"]
-    },
-    {
-      "url": "https://www.bershka.com/tr/%C3%A7ift-kuma%C5%9Fl%C4%B1-hacimli-pantolon-c0p200832243.html?colorId=889",
-      "store": "bershka",
-      "sizes": ["32", "34", "40"]
     }
   ],
   "sleep_min_seconds": 20,
