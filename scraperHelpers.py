@@ -1,43 +1,19 @@
-# ============================
-# scraperHelpers.py (REVIZE v2)
-# Headless/worker uyumlu; yalancı pozitifleri azaltır.
-# Dönüş:
-#   - stok varsa: List[str]  (ör. ["S","M"])
-#   - stok yoksa: []
-#   - hata:      None
-# ============================
-
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import (
-    TimeoutException,
-    NoSuchElementException,
-    StaleElementReferenceException,
-)
-
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, ElementClickInterceptedException, StaleElementReferenceException
 import time
 
-
-# ----------------------------
-# Yardımcı: güvenli text okuma
-# ----------------------------
 def _safe_text(el):
+    """Element text'ini güvenli şekilde al (StaleElementReferenceException için)"""
     try:
-        t = (el.text or "").strip()
-        if t:
-            return t
-        t = (el.get_attribute("innerText") or "").strip()
-        if t:
-            return t
-        t = (el.get_attribute("aria-label") or "").strip()
-        return t or ""
-    except Exception:
+        return el.text or ""
+    except StaleElementReferenceException:
         return ""
 
 
 # ------------------------------------------------------------
-# ZARA: link-bazlı beden kontrolü (muhafazakâr)
+# ZARA: link-bazlı beden kontrolü (ÇALIŞAN KOD MANTIĞI)
 # ------------------------------------------------------------
 def check_stock_zara(driver, sizes_to_check):
     """
@@ -45,346 +21,127 @@ def check_stock_zara(driver, sizes_to_check):
     Çıktı  : stokta bulunan bedenler (list[str]); yoksa [].
     Hata   : None
     Notlar :
+      - ÇALIŞAN KOD MANTIĞI: Önce "Add to Cart" butonuna tıklıyor, sonra size selector açılıyor
       - SADECE gerçekten tıklanabilir (enabled) butonlar "stok var" sayılır.
       - Eşleşme case-insensitive yapılır.
     """
     try:
-        wait = WebDriverWait(driver, 15)
+        wait = WebDriverWait(driver, 25)
         
-        # Sayfayı kaydır ve beden alanının yüklenmesini bekle
+        # Cookie popup'ı kapat
+        try:
+            accept_cookies_button = wait.until(EC.element_to_be_clickable((By.ID, "onetrust-accept-btn-handler")))
+            accept_cookies_button.click()
+            print("[DEBUG] Cookie popup kapatıldı")
+            time.sleep(1)
+        except TimeoutException:
+            print("[DEBUG] Cookie popup bulunamadı veya zaten kapalı")
+        
+        # Sayfayı kaydır
         try:
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.3);")
             time.sleep(1)
         except Exception:
             pass
         
-        # Size selector container'ının yüklenmesini bekle
+        # "Add to Cart" butonuna tıkla (ÇALIŞAN KOD MANTIĞI)
         try:
-            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "[data-qa='size-selector'], .size-selector-sizes, div[class*='size-selector']")))
-            time.sleep(2)  # Element'lerin tam yüklenmesi için ek bekleme
+            add_to_cart_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[data-qa-action='add-to-cart']")))
+            
+            # Overlay varsa kaldır
+            overlays = driver.find_elements(By.CLASS_NAME, "zds-backdrop")
+            if overlays:
+                print("[DEBUG] Overlay bulundu, kaldırılıyor...")
+                driver.execute_script("arguments[0].remove();", overlays[0])
+            
+            # JavaScript ile tıkla (overlay bypass)
+            driver.execute_script("arguments[0].click();", add_to_cart_button)
+            print("[DEBUG] 'Add to Cart' butonuna tıklandı")
+            time.sleep(2)  # Size selector'ın açılması için bekle
+        except (TimeoutException, NoSuchElementException) as e:
+            print(f"[DEBUG] 'Add to Cart' butonu bulunamadı veya tıklanamadı: {e}")
+            # Add to Cart bulunamazsa devam et, belki size selector zaten açık
+        
+        # Size selector'ın görünmesini bekle
+        try:
+            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "size-selector-sizes")))
+            print("[DEBUG] Size selector container görüldü")
+            time.sleep(1)  # Element'lerin tam yüklenmesi için
         except TimeoutException:
-            print("[DEBUG] Size container için timeout - devam ediliyor")
-            pass
+            print("[DEBUG] Size selector container görünmedi, alternatif yöntem deneniyor...")
 
-        # ZARA SELECTOR STRATEJİSİ: Önce size selector container'ını bul, sonra içindeki butonları al
-        # Bu yaklaşım yanlış butonları (renk, görsel vb.) seçmeyi engeller
+        # ÇALIŞAN KOD MANTIĞI: .size-selector-sizes-size class'ını kullan
+        # Her size elementi bir <li> ve içinde label ve button var
         
-        buttons = []
-        
-        # 1) Size selector container'larını bul
-        size_container_selectors = [
-            "[data-qa='size-selector']",
-            ".size-selector-sizes",
-            "[data-qa-qualifier*='size']",
-            ".product-detail-size",
-            "ul[class*='size']",
-            "div[class*='size-selector']",
-        ]
-        
-        size_container = None
-        for container_sel in size_container_selectors:
-            try:
-                containers = driver.find_elements(By.CSS_SELECTOR, container_sel)
-                if containers:
-                    print(f"[DEBUG] Size container bulundu: '{container_sel}' ({len(containers)} adet)")
-                    size_container = containers[0]  # İlkini al
-                    break
-            except:
-                continue
-        
-        # 2) Container varsa içindeki elementleri al (button, div, span, li hepsi olabilir)
-        if size_container:
-            # Container'ın HTML'ini debug için göster
-            try:
-                container_html = size_container.get_attribute("outerHTML")[:500]
-                print(f"[DEBUG] Container HTML (ilk 500 karakter): {container_html}")
-                
-                # JavaScript ile container içindeki tüm elementleri bul
-                js_code = """
-                var container = arguments[0];
-                var elements = [];
-                var all = container.querySelectorAll('*');
-                for (var i = 0; i < all.length; i++) {
-                    var el = all[i];
-                    var txt = (el.textContent || el.innerText || '').trim();
-                    if (txt && txt.length <= 3) {
-                        elements.push({
-                            tag: el.tagName,
-                            text: txt,
-                            class: el.className || '',
-                            disabled: el.disabled || el.getAttribute('aria-disabled') === 'true',
-                            html: el.outerHTML.substring(0, 200)
-                        });
-                    }
-                }
-                return elements;
-                """
-                js_results = driver.execute_script(js_code, size_container)
-                if js_results:
-                    print(f"[DEBUG] JavaScript ile container içinde {len(js_results)} element bulundu")
-                    for idx, res in enumerate(js_results[:10]):
-                        print(f"[DEBUG]   JS Element #{idx+1}: tag={res.get('tag', 'N/A')}, text='{res.get('text', '')}', disabled={res.get('disabled', False)}")
-            except Exception as e:
-                print(f"[DEBUG] Container debug hatası: {e}")
-            
-            # Element'lerin yüklenmesi için bekle
-            time.sleep(2)
-            
-            # Container içindeki TÜM tıklanabilir elementleri bul
-            all_elements_selectors = [
-                # Önce spesifik button'lar
-                "button[data-qa-action='size-in-stock']",
-                "button[data-qa-action*='in-stock']",
-                "li.size-selector-sizes-size--enabled button",
-                # Sonra tüm button'lar
-                "button",
-                # Belki button değil, div/span olabilir
-                "div[role='button']",
-                "span[role='button']",
-                "li[role='button']",
-                # Direkt clickable elementler
-                "div[class*='size'][class*='enabled']",
-                "span[class*='size'][class*='enabled']",
-                "li[class*='size']",
-                # En genel: container içindeki her şey
-                "*",
-            ]
-            
-            for sel in all_elements_selectors:
-                try:
-                    found = size_container.find_elements(By.CSS_SELECTOR, sel)
-                    if found:
-                        print(f"[DEBUG] Container içinde '{sel}' ile {len(found)} element bulundu")
-                        # İlk birkaç elementin text'ini göster
-                        for idx, elem in enumerate(found[:5]):
-                            txt = _safe_text(elem)
-                            print(f"[DEBUG]   Element #{idx+1}: tag={elem.tag_name}, text='{txt}', class={elem.get_attribute('class')[:50] if elem.get_attribute('class') else 'NONE'}")
-                        
-                        # Text ile filtrele - sadece gerçek bedenleri al
-                        filtered = []
-                        for elem in found:
-                            txt = _safe_text(elem).strip().upper()
-                            # Beden pattern kontrolü
-                            if txt and len(txt) <= 3:
-                                if txt in ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'] or (txt.isdigit() and 28 <= int(txt) <= 50):
-                                    # Disabled kontrolü
-                                    cls = (elem.get_attribute("class") or "").lower()
-                                    aria_disabled = (elem.get_attribute("aria-disabled") or "").lower()
-                                    disabled = ("disabled" in cls) or (aria_disabled == "true") or (elem.get_attribute("disabled") is not None)
-                                    if not disabled:
-                                        filtered.append(elem)
-                                        print(f"[DEBUG] ✅ Container'da beden bulundu: '{txt}' (element: {elem.tag_name})")
-                        
-                        if filtered:
-                            print(f"[DEBUG] ✅ Container içinde toplam {len(filtered)} beden element bulundu")
-                            buttons = filtered
-                            break
-                except Exception as e:
-                    print(f"[DEBUG] Container selector '{sel}' hatası: {e}")
-                    continue
-        else:
-            # Container bulunamadı - spesifik size selector'ları dene (sayfa genelinde)
-            button_selectors = [
-                "button[data-qa-action='size-in-stock']",
-                "button[data-qa-action*='in-stock']",
-                "li.size-selector-sizes-size--enabled button",
-                "[data-qa='size-selector'] button",
-                ".size-selector-sizes button",
-            ]
-            
-            for sel in button_selectors:
-                try:
-                    found = driver.find_elements(By.CSS_SELECTOR, sel)
-                    if found:
-                        # Text ile filtrele
-                        filtered = []
-                        for btn in found:
-                            txt = _safe_text(btn).strip().upper()
-                            if txt and len(txt) <= 3:
-                                if txt in ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'] or (txt.isdigit() and 28 <= int(txt) <= 50):
-                                    filtered.append(btn)
-                        
-                        if filtered:
-                            print(f"[DEBUG] Genel selector '{sel}' ile {len(filtered)} beden butonu bulundu")
-                            buttons = filtered
-                            break
-                except:
-                    continue
-
-        # Eğer hala bulamadıysak, daha genel arama
-        if not buttons:
-            print("[DEBUG] Selector'lar başarısız, genel arama başlatılıyor")
-            # Scroll daha aşağıya
-            try:
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.5);")
-                time.sleep(1.5)
-                # Tüm butonları al ve kendimiz filtreleyelim
-                all_buttons = driver.find_elements(By.CSS_SELECTOR, "button")
-                print(f"[DEBUG] Sayfada toplam {len(all_buttons)} buton var")
-                buttons = []
-                for btn in all_buttons:
-                    txt = _safe_text(btn).upper()
-                    cls = (btn.get_attribute("class") or "").lower()
-                    aria_disabled = (btn.get_attribute("aria-disabled") or "").lower()
-                    
-                    # Beden pattern'i kontrol et (S, M, L, XS, XL veya sayı 28-50)
-                    is_size = False
-                    if txt and len(txt) <= 3:
-                        if txt in ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL']:
-                            is_size = True
-                        elif txt.isdigit() and 28 <= int(txt) <= 50:
-                            is_size = True
-                    
-                    if is_size:
-                        disabled = ("disabled" in cls) or (aria_disabled == "true") or (btn.get_attribute("disabled") is not None)
-                        print(f"[DEBUG] Beden bulundu: {txt}, disabled={disabled}")
-                        if not disabled:
-                            buttons.append(btn)
-                print(f"[DEBUG] Genel aramada {len(buttons)} enabled beden bulundu")
-            except Exception as e:
-                print(f"[DEBUG] Genel arama hatası: {e}")
-
-        # 3) Eğer hiç buton bulunamadıysa, JSON fallback'i dene
-        if not buttons:
-            print("[DEBUG] Hiç buton bulunamadı, JSON fallback deneniyor...")
-            try:
-                import re
-                sizes = set()
-                scripts = driver.find_elements(By.CSS_SELECTOR, "script")
-                print(f"[DEBUG] JSON fallback: {len(scripts)} script tag bulundu")
-                for s in scripts:
-                    try:
-                        blob = s.get_attribute("innerHTML") or ""
-                    except:
-                        blob = ""
-                    if not blob:
-                        continue
-                    if not any(k in blob for k in ["sizes", "availability", "variants", "skus", "inStock", "stock"]):
-                        continue
-
-                    # Sadece inStock=true olan bedenleri al
-                    for m in re.finditer(r'"(size|name|sizeCode|value)"\s*:\s*"([^"]{1,12})".{0,300}?"(availability|inStock)"\s*:\s*(true|"inStock"|"available"|"in-stock")',
-                                         blob, re.IGNORECASE | re.DOTALL):
-                        sizes.add(m.group(2))
-                    
-                    for m in re.finditer(r'"(size|name|sizeCode)"\s*:\s*"([^"]{1,12})".{0,300}?"data-qa-action"\s*:\s*"[^"]*size-in-stock[^"]*"',
-                                         blob, re.IGNORECASE | re.DOTALL):
-                        sizes.add(m.group(2))
-                    
-                    for m in re.finditer(r'"(size|name|sizeCode|value)"\s*:\s*"([^"]{1,12})".{0,200}?"(isEnabled|enabled)"\s*:\s*true',
-                                         blob, re.IGNORECASE | re.DOTALL):
-                        sizes.add(m.group(2))
-
-                if sizes:
-                    print(f"[DEBUG] JSON fallback ile {len(sizes)} beden bulundu: {list(sizes)[:10]}")
-                    # JSON'dan gelen bedenleri istenen bedenlerle eşleştir
-                    wanted = set(x.strip().upper() for x in (sizes_to_check or []))
-                    found_sizes = []
-                    for sz in sizes:
-                        sz_upper = sz.strip().upper()
-                        if sz_upper in ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'] or (sz_upper.isdigit() and 28 <= int(sz_upper) <= 50):
-                            if not wanted or sz_upper in wanted:
-                                found_sizes.append(sz_upper)
-                    if found_sizes:
-                        print(f"[DEBUG] JSON fallback: istenen bedenlerle eşleşen {len(found_sizes)} beden var: {found_sizes}")
-                        return found_sizes
-            except Exception as e:
-                print(f"[DEBUG] JSON fallback hatası: {e}")
-            
-            return []
-
-        # İstenen bedenleri normalize et (case-insensitive)
-        wanted = set(x.strip().upper() for x in (sizes_to_check or []))
-
         in_stock = []
-        print(f"[DEBUG] Toplam {len(buttons)} buton işlenecek, wanted={wanted}")
-        for idx, b in enumerate(buttons):
-            try:
-                size_label = _safe_text(b).upper()
-                print(f"[DEBUG] Buton #{idx+1}: text='{size_label}' (raw: {b.text[:50] if b.text else 'NONE'})")
-                if not size_label:
-                    print(f"[DEBUG] Buton #{idx+1}: size_label boş, atlanıyor")
-                    continue
-
-                # Eğer takip listesi verilmişse, önce onlarla filtrele
-                if wanted and (size_label not in wanted):
-                    print(f"[DEBUG] Buton #{idx+1}: '{size_label}' wanted listesinde değil, atlanıyor")
-                    continue
-
-                # Buton özelliklerini topla
-                cls = (b.get_attribute("class") or "").lower()
-                aria = (b.get_attribute("aria-disabled") or "").lower()
-                qa = (b.get_attribute("data-qa-action") or "").lower()
-                disabled = ("disabled" in cls) or (aria == "true") or (b.get_attribute("disabled") is not None)
-                
-                # HTML içeriğini kontrol et (coming soon için)
+        wanted = set(x.strip().upper() for x in (sizes_to_check or []))
+        
+        # ÇALIŞAN KOD SELECTOR'LARI:
+        try:
+            size_elements = driver.find_elements(By.CLASS_NAME, "size-selector-sizes-size")
+            print(f"[DEBUG] Çalışan kod mantığı: {len(size_elements)} size element bulundu (.size-selector-sizes-size)")
+            
+            for li in size_elements:
                 try:
-                    html_raw = b.get_attribute("outerHTML") or ""
-                    html_lower = html_raw.lower()
-                except:
-                    html_lower = ""
-                
-                # Coming soon kontrolü (kazak M bedeni için)
-                is_coming_soon = (
-                    "coming" in html_lower or 
-                    "yakında" in html_lower or 
-                    "coming" in cls or
-                    "coming-soon" in cls
-                )
-                
-                # Stok kontrolü - ChatGPT analizi + kazak analizi sonrası güncellendi
-                # Öncelik: data-qa-action="size-in-stock" → kesin stokta
-                # İkinci: class="size-selector-sizes-size--enabled" → stokta
-                # Red: Coming soon veya disabled → stokta değil
-                # Son çare: disabled değilse kabul et
-                
-                is_in_stock = False
-                
-                # 0) ÖNCE RED KONTROLÜ - Coming soon veya disabled → kesinlikle stokta değil
-                if is_coming_soon:
-                    print(f"[DEBUG] ❌ Beden '{size_label}' coming soon - stokta değil")
-                    is_in_stock = False
-                
-                # 1) ChatGPT'nin bulduğu: data-qa-action="size-in-stock" → kesin stokta
-                elif qa and ("size-in-stock" in qa or "in-stock" in qa or "low-on-stock" in qa):
-                    is_in_stock = True
-                    print(f"[DEBUG] ✅ Beden '{size_label}' stokta (data-qa-action={qa})")
+                    # Beden label'ını bul
+                    size_label_elem = li.find_element(By.CSS_SELECTOR, "div[data-qa-qualifier='size-selector-sizes-size-label']")
+                    size_label = size_label_elem.text.strip().upper()
+                    print(f"[DEBUG] Size element bulundu: '{size_label}'")
                     
-                # 2) Enabled class var mı? (ayakkabı için)
-                elif "size-selector-sizes-size--enabled" in cls:
-                    is_in_stock = True
-                    print(f"[DEBUG] ✅ Beden '{size_label}' stokta (enabled class)")
-                    
-                # 3) Explicit disabled işaretleri varsa → stokta değil
-                elif "out-of-stock" in qa or "disabled" in qa:
-                    is_in_stock = False
-                    print(f"[DEBUG] ❌ Beden '{size_label}' disabled/out-of-stock")
-                    
-                # 4) Qa-action yoksa → disabled değilse kabul et (dikkatli)
-                elif not qa and not disabled:
-                    # Güvenlik: Çok genel olmasın, en azından size pattern'i doğrula
-                    is_in_stock = True
-                    print(f"[DEBUG] ⚠️ Beden '{size_label}' qa-action yok ama disabled değil - kabul edildi")
-                else:
-                    is_in_stock = False
+                    if not wanted or size_label in wanted:
+                        # Button'u bul
+                        button = li.find_element(By.CLASS_NAME, "size-selector-sizes-size__button")
+                        
+                        # "Benzer ürünler" kontrolü (stok yok)
+                        try:
+                            similar_products_elem = button.find_element(By.CLASS_NAME, "size-selector-sizes-size__action")
+                            if "Benzer ürünler" in similar_products_elem.text:
+                                print(f"[DEBUG] ❌ Beden '{size_label}' - Benzer ürünler gösteriliyor (stok yok)")
+                                continue
+                        except NoSuchElementException:
+                            pass  # "Benzer ürünler" yoksa devam et
+                        
+                        # Stok durumunu kontrol et
+                        qa_action = button.get_attribute("data-qa-action") or ""
+                        print(f"[DEBUG] Beden '{size_label}' - data-qa-action: '{qa_action}'")
+                        
+                        if qa_action in ["size-in-stock", "size-low-on-stock"]:
+                            print(f"[DEBUG] ✅ Beden '{size_label}' stokta!")
+                            in_stock.append(size_label)
+                        else:
+                            print(f"[DEBUG] ❌ Beden '{size_label}' stokta değil (qa-action: {qa_action})")
+                            
+                except NoSuchElementException as e:
+                    print(f"[DEBUG] Size element işlenirken hata (label/button bulunamadı): {e}")
+                    continue
+                except Exception as e:
+                    print(f"[DEBUG] Size element işlenirken hata: {e}")
+                    continue
+            
+            if in_stock:
+                print(f"[DEBUG] ✅ Toplam {len(in_stock)} beden stokta: {in_stock}")
+                return in_stock
+            else:
+                print(f"[DEBUG] İstenen bedenler stokta değil: {list(wanted)}")
+                return []
                 
-                if is_in_stock:
-                    in_stock.append(size_label)
-
-            except StaleElementReferenceException:
-                continue
-            except Exception:
-                continue
-
-        return in_stock
-
+        except Exception as e:
+            print(f"[DEBUG] Çalışan kod mantığı hatası: {e}")
+            import traceback
+            print(f"[DEBUG] Hata detayı:\n{traceback.format_exc()}")
+            return []
+    
     except Exception as e:
-        print(f"[check_stock_zara] Hata: {e}")
-        return None
+        print(f"[DEBUG] check_stock_zara genel hatası: {e}")
+        import traceback
+        print(f"[DEBUG] Hata detayı:\n{traceback.format_exc()}")
+        return []
+    
+    return []
 
 
 # ------------------------------------------------------------
-# BERSHKA: link-bazlı beden kontrolü (muhafazakâr)
+# BERSHKA: link-bazlı beden kontrolü
 # ------------------------------------------------------------
 def check_stock_bershka(driver, sizes_to_check):
     """
@@ -412,93 +169,56 @@ def check_stock_bershka(driver, sizes_to_check):
             "button[data-qa-anchor='sizeListItem']",
             "ul[data-qa-anchor='productDetailSize'] button",
         ]
-        buttons = []
+
+        wanted = set(x.strip().upper() for x in (sizes_to_check or []))
+        in_stock = []
+
         for sel in button_selectors:
             try:
                 buttons = driver.find_elements(By.CSS_SELECTOR, sel)
-                if buttons:
-                    break
-            except Exception:
-                continue
-
-        if not buttons:
-            return []
-
-        wanted = set(x.strip().upper() for x in (sizes_to_check or []))
-
-        in_stock = []
-        for btn in buttons:
-            try:
-                # Label
-                size_label = ""
-                try:
-                    size_label = _safe_text(btn.find_element(By.CSS_SELECTOR, "span.text__label")).upper()
-                except NoSuchElementException:
-                    size_label = _safe_text(btn).upper()
-
-                if not size_label:
+                if not buttons:
                     continue
 
-                if wanted and (size_label not in wanted):
-                    continue
+                print(f"[DEBUG] {len(buttons)} Bershka beden butonu bulundu (selector: {sel})")
 
-                cls  = (btn.get_attribute("class") or "").lower()
-                aria = (btn.get_attribute("aria-disabled") or "").lower()
-                disabled = ("is-disabled" in cls) or (aria == "true") or (btn.get_attribute("disabled") is not None)
+                for button in buttons:
+                    try:
+                        size_label_elem = button.find_element(By.CSS_SELECTOR, "span.text__label")
+                        size_label = size_label_elem.text.strip().upper()
 
-                if not disabled:
-                    in_stock.append(size_label)
+                        if not wanted or size_label in wanted:
+                            # Class'ın stabilize olmasını bekle
+                            def class_stabilized(driver):
+                                cls = button.get_attribute("class")
+                                return "is-disabled" in cls or "is-disabled" not in cls
 
-            except StaleElementReferenceException:
+                            WebDriverWait(driver, 5).until(class_stabilized)
+
+                            class_attr = button.get_attribute("class")
+                            if "is-disabled" in class_attr:
+                                print(f"[DEBUG] ❌ Bershka beden '{size_label}' stokta değil (is-disabled)")
+                            else:
+                                print(f"[DEBUG] ✅ Bershka beden '{size_label}' stokta!")
+                                in_stock.append(size_label)
+                    except NoSuchElementException:
+                        continue
+                    except Exception as e:
+                        print(f"[DEBUG] Bershka button işlenirken hata: {e}")
+                        continue
+
+                if in_stock:
+                    return in_stock
+            except Exception as e:
+                print(f"[DEBUG] Bershka selector '{sel}' hatası: {e}")
                 continue
-            except Exception:
-                continue
 
+        if not in_stock:
+            print(f"[DEBUG] İstenen Bershka bedenler stokta değil: {list(wanted)}")
+        
         return in_stock
 
     except Exception as e:
-        print(f"[check_stock_bershka] Hata: {e}")
-        return None
-
-
-# ------------------------------------------------------------
-# Rossmann: örnek (bool döner)
-# ------------------------------------------------------------
-def rossmannStockCheck(driver):
-    """
-    True → stok var (Sepete Ekle tıklanabilir),
-    False → stok yok,
-    None  → hata.
-    """
-    try:
-        wait = WebDriverWait(driver, 20)
-        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "product-add-form")))
-        try:
-            button = driver.find_element(By.XPATH, "//button[@type='submit' and contains(., 'Sepete Ekle')]")
-            return bool(button)
-        except Exception:
-            return False
-    except Exception:
-        return None
-
-
-# ------------------------------------------------------------
-# Watsons: örnek (bool döner)
-# ------------------------------------------------------------
-def watsonsChecker(driver):
-    """
-    True → listede ürün var,
-    False → '0 ürün' veya liste yok,
-    None  → hata.
-    """
-    try:
-        wait = WebDriverWait(driver, 20)
-        elems = wait.until(EC.presence_of_all_elements_located((By.CLASS_NAME, "product-grid-manager__view-mount")))
-        combined_text = " ".join([(_safe_text(e)).lower() for e in elems if _safe_text(e)])
-        if "0 ürün" in combined_text or "0 urun" in combined_text:
-            return False
-        return True
-    except TimeoutException:
-        return False
-    except Exception:
-        return None
+        print(f"[DEBUG] check_stock_bershka genel hatası: {e}")
+        import traceback
+        print(f"[DEBUG] Hata detayı:\n{traceback.format_exc()}")
+        return []
