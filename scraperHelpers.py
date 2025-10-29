@@ -264,12 +264,15 @@ def check_stock_hm(driver, sizes_to_check):
         except:
             pass
         
-        # Size selector'ın yüklenmesini bekle - daha fazla alternatif selector ve uzun süre
+        # Size selector'ın yüklenmesini bekle - ANALİZ SONUÇLARINA GÖRE: sizeButton- (büyük B) formatı
         size_elements = []
         wait_selectors = [
-            "div[data-testid^='sizebutton-']",
-            "div[id^='sizebutton-']",
-            "div[role='radio'][aria-label*='beden']",
+            "div[data-testid^='sizeButton-']",  # EN ÖNEMLİ: Büyük B formatı (analiz sonuçlarına göre)
+            "div[id^='sizeButton-']",  # EN ÖNEMLİ: Büyük B formatı
+            "div[data-testid^='sizebutton-']",  # Küçük b (fallback)
+            "div[id^='sizebutton-']",  # Küçük b (fallback)
+            "li > div[role='radio'][aria-label*='Beden']",  # Büyük B ile (stokta olanlar)
+            "div[role='radio'][aria-label*='beden']",  # Küçük b ile
             "li div[role='radio']",
             "div[data-testid*='size']",
             "*[aria-label*='beden:']",
@@ -293,20 +296,24 @@ def check_stock_hm(driver, sizes_to_check):
             print("[DEBUG] H&M wait selector bulunamadı, yine de size element aramaya devam ediliyor...")
             time.sleep(2)  # Yine de biraz bekle
         
-        # Size elementlerini bul - ANALİZ SONUÇLARINA GÖRE: li > div[id="sizebutton-0"] formatında
+        # Size elementlerini bul - ANALİZ SONUÇLARINA GÖRE: li > div[id="sizeButton-0"] formatında
+        # ÖNEMLİ NOT: ID formatı büyük harfle başlıyor: sizeButton-0 (sizebutton-0 değil!)
         # ÖNEMLİ: Tüm selector'ları birleştirip tek seferde arama yap (tüm bedenleri bulmak için)
         size_selectors = [
-            # Öncelik 1: Analiz sonuçlarına göre li içinde olmalı
-            "li > div[id^='sizebutton-'], li > div[data-testid^='sizebutton-']",
-            "li > div[id^='sizeButton-'], li > div[data-testid^='sizeButton-']",  # Case variation
-            "li > div[id*='sizebutton'], li > div[data-testid*='sizebutton']",  # Partial match
-            # Öncelik 2: Direkt div (li olmadan da olabilir)
-            "div[id^='sizebutton-'], div[data-testid^='sizebutton-']",
-            "div[id^='sizeButton-'], div[data-testid^='sizeButton-']",  # Case variation
-            "div[id*='sizebutton'], div[data-testid*='sizebutton']",  # Partial match
-            # Öncelik 3: role='radio' olanlar (tüm varyasyonlar)
-            "div[role='radio'][aria-label*='beden'], div[role='radio'][aria-label*='Beden']",
-            "div[role='radio'][aria-label*='BEDEN']",
+            # Öncelik 1: Analiz sonuçlarına göre - li içinde ve BÜYÜK HARF: sizeButton-
+            "li > div[id^='sizeButton-'], li > div[data-testid^='sizeButton-']",  # EN ÖNEMLİ: Büyük B formatı
+            "li > div[id^='sizebutton-'], li > div[data-testid^='sizebutton-']",  # Küçük b (fallback)
+            "li > div[id*='sizeButton'], li > div[data-testid*='sizeButton']",  # Partial match (büyük B)
+            "li > div[id*='sizebutton'], li > div[data-testid*='sizebutton']",  # Partial match (küçük b)
+            # Öncelik 2: Direkt div (li olmadan da olabilir) - BÜYÜK HARF ÖNCELİKLİ
+            "div[id^='sizeButton-'], div[data-testid^='sizeButton-']",  # Büyük B formatı
+            "div[id^='sizebutton-'], div[data-testid^='sizebutton-']",  # Küçük b (fallback)
+            "div[id*='sizeButton'], div[data-testid*='sizeButton']",  # Partial match (büyük B)
+            # Öncelik 3: role='radio' olanlar (tüm varyasyonlar) - Analiz sonuçlarına göre parent: LI
+            "li > div[role='radio'][aria-label*='Beden']",  # Büyük B ile başlayan (stokta olanlar)
+            "li > div[role='radio'][aria-label*='beden']",  # Küçük b ile (stokta olmayanlar)
+            "div[role='radio'][aria-label*='Beden']",  # Direkt div (büyük B)
+            "div[role='radio'][aria-label*='beden']",  # Direkt div (küçük b)
             "li div[role='radio']",
             "div[role='radio']",
             # Öncelik 4: Genel selector'lar
@@ -394,25 +401,28 @@ def check_stock_hm(driver, sizes_to_check):
             try:
                 page_text = driver.page_source
                 page_lower = page_text.lower()
-                if "sizebutton" in page_lower:
-                    # Kaç tane sizebutton var?
-                    count_id = page_text.count("id=\"sizebutton-")
-                    count_testid = page_text.count("data-testid=\"sizebutton-")
-                    print(f"[DEBUG] H&M HTML'de 'sizebutton' kelimesi var (id count: {count_id}, testid count: {count_testid}) ama selector bulamadı")
-                    # İlk 2000 karakteri logla
-                    size_section = page_text.find("sizebutton")
-                    if size_section > 0:
-                        start = max(0, size_section - 500)
-                        end = min(len(page_text), size_section + 500)
-                        print(f"[DEBUG] H&M sizebutton çevresi (ilk görünen): {page_text[start:end][:200]}...")
+                
+                # Büyük harf formatını kontrol et (analiz sonuçlarına göre: sizeButton-)
+                count_id_capital = page_text.count("id=\"sizeButton-")
+                count_testid_capital = page_text.count("data-testid=\"sizeButton-")
+                count_id_lower = page_text.count("id=\"sizebutton-")
+                count_testid_lower = page_text.count("data-testid=\"sizebutton-")
+                
+                if count_id_capital > 0 or count_testid_capital > 0:
+                    print(f"[DEBUG] H&M HTML'de 'sizeButton-' (büyük B) formatı var (id: {count_id_capital}, testid: {count_testid_capital}) ama selector bulamadı")
+                elif count_id_lower > 0 or count_testid_lower > 0:
+                    print(f"[DEBUG] H&M HTML'de 'sizebutton-' (küçük b) formatı var (id: {count_id_lower}, testid: {count_testid_lower}) ama selector bulamadı")
+                elif "sizebutton" in page_lower:
+                    print(f"[DEBUG] H&M HTML'de 'sizebutton' kelimesi var (farklı format) ama selector bulamadı")
                 else:
-                    print("[DEBUG] H&M HTML'de 'sizebutton' kelimesi yok")
-                    # Belki başka bir format var?
-                    if "aria-label" in page_lower and "beden" in page_lower:
-                        print("[DEBUG] H&M HTML'de 'aria-label' ve 'beden' kelimesi var, belki farklı format")
-                    if "role=\"radio\"" in page_lower:
-                        radio_count = page_text.count("role=\"radio\"")
-                        print(f"[DEBUG] H&M HTML'de {radio_count} tane role='radio' elementi var")
+                    print("[DEBUG] H&M HTML'de 'sizebutton' veya 'sizeButton' kelimesi yok")
+                
+                # Belki başka bir format var?
+                if "aria-label" in page_lower and "beden" in page_lower:
+                    print("[DEBUG] H&M HTML'de 'aria-label' ve 'beden' kelimesi var, belki farklı format")
+                if "role=\"radio\"" in page_lower or "role='radio'" in page_lower:
+                    radio_count = page_text.count("role=\"radio\"") + page_text.count("role='radio'")
+                    print(f"[DEBUG] H&M HTML'de {radio_count} tane role='radio' elementi var")
             except Exception as debug_e:
                 print(f"[DEBUG] H&M debug hatası: {debug_e}")
             return []
