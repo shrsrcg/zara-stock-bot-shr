@@ -986,6 +986,70 @@ def check_stock_stradivarius(driver, sizes_to_check):
         if not size_elements:
             print("[DEBUG] Stradivarius size element bulunamadı")
             return []
+
+        # Birden fazla bölümde (öneri carouselleri, popuplar vb.) aynı selector'lar olabilir.
+        # Ana ürünün beden listesini seçmek için, butonları en yakın container'a göre gruplayıp
+        # sayfada en üstte yer alan (y konumu en küçük) ve en az 3 beden içeren grubu seçeceğiz.
+        try:
+            container_to_buttons = {}
+            container_to_y = {}
+            for btn in list(size_elements):
+                container = None
+                try:
+                    # Önce UL container'ı dene
+                    container = btn.find_element(By.XPATH, "./ancestor::ul[1]")
+                except Exception:
+                    pass
+                if container is None:
+                    try:
+                        # Sonra div içinde product-size geçen sınıfı olan container'ı dene
+                        container = btn.find_element(By.XPATH, "./ancestor::div[contains(@class,'product-size')][1]")
+                    except Exception:
+                        pass
+                # Hiçbiri bulunamazsa, bir üst div'e bağla (gevşek fallback)
+                if container is None:
+                    try:
+                        container = btn.find_element(By.XPATH, "./ancestor::div[1]")
+                    except Exception:
+                        continue
+
+                key = container
+                if key not in container_to_buttons:
+                    container_to_buttons[key] = []
+                    try:
+                        container_to_y[key] = container.location.get('y', 999999)
+                    except Exception:
+                        container_to_y[key] = 999999
+                container_to_buttons[key].append(btn)
+
+            # Uygun container'ı seç: en az 3 farklı beden içersin ve sayfada en yukarıda olsun
+            def count_unique_sizes(buttons_list):
+                uniq = set()
+                for b in buttons_list:
+                    try:
+                        txt = (b.text or "").strip().upper()
+                        if txt:
+                            uniq.add(txt)
+                    except Exception:
+                        continue
+                return len(uniq)
+
+            selected_container = None
+            best_y = 999999
+            for cont, btns in container_to_buttons.items():
+                uniq_count = count_unique_sizes(btns)
+                y = container_to_y.get(cont, 999999)
+                if uniq_count >= 3 and y < best_y:
+                    best_y = y
+                    selected_container = cont
+
+            if selected_container is not None:
+                size_elements = container_to_buttons[selected_container]
+                print(f"[DEBUG] Stradivarius ana beden container seçildi: y={best_y}, buton sayısı={len(size_elements)}")
+            else:
+                print("[DEBUG] Stradivarius uygun bir ana container bulunamadı, tüm bulunan elementler kullanılacak")
+        except Exception as e:
+            print(f"[DEBUG] Stradivarius container gruplama hatası: {e}")
         
         wanted = set(x.strip().upper() for x in (sizes_to_check or []))
         in_stock = []
