@@ -58,18 +58,28 @@ def check_stock_zara(driver, sizes_to_check):
         except Exception:
             pass
 
-        # AGGRESİF SELECTOR'LAR - Tüm olası Zara yapıları
+        # ZARA SELECTOR'LAR - ChatGPT analizi sonrası güncellendi
+        # Ayakkabı: li.size-selector-sizes-size--enabled > button[data-qa-action="size-in-stock"]
+        # Giyim: benzer yapı
         button_selectors = [
-            # Modern Zara
+            # Öncelikli: ChatGPT'nin bulduğu yapı (ayakkabı)
+            "li.size-selector-sizes-size--enabled button[data-qa-action='size-in-stock']",
+            "li.size-selector-sizes-size--enabled button",
+            
+            # Modern Zara - genel
+            "button[data-qa-action='size-in-stock']",
             "button[data-qa-action*='in-stock']",
             "button[data-qa-action*='low-on-stock']", 
+            
+            # Size selector içindeki enabled butonlar
             "[data-qa='size-selector'] button:not([aria-disabled='true']):not([disabled])",
             ".size-selector-sizes button:not([aria-disabled='true'])",
-            "[data-qa-qualifier*='size'] button:not([disabled])",
+            ".size-selector-sizes-size--enabled button",
             
-            # Genel buton selectorlar (enabled olanları filtrele)
+            # Alternatif yapılar
+            "[data-qa-qualifier*='size'] button:not([disabled])",
             "button.size:not([disabled]):not([aria-disabled='true'])",
-            "li button:not([disabled])",
+            "li button:not([disabled]):not([aria-disabled='true'])",
             ".product-detail-size button:not([disabled])",
             
             # Data attribute'ları ile
@@ -146,22 +156,33 @@ def check_stock_zara(driver, sizes_to_check):
                 qa = (b.get_attribute("data-qa-action") or "").lower()
                 disabled = ("disabled" in cls) or (aria == "true") or (b.get_attribute("disabled") is not None)
 
-                # Stok kontrolü
-                # 1) Eğer data-qa-action varsa ve "in-stock" içeriyorsa → kabul et
-                # 2) Eğer data-qa-action yoksa veya farklıysa → disabled değilse kabul et
+                # Stok kontrolü - ChatGPT analizi sonrası güncellendi
+                # Öncelik: data-qa-action="size-in-stock" → kesin stokta
+                # İkinci: class="size-selector-sizes-size--enabled" → stokta
+                # Son çare: disabled değilse kabul et
+                
                 is_in_stock = False
-                if qa:
-                    # qa-action varsa, "in-stock" veya "low-on-stock" içermeli
-                    if "in-stock" in qa or "low-on-stock" in qa:
-                        is_in_stock = True
-                    elif "out-of-stock" in qa or "disabled" in qa:
-                        is_in_stock = False
-                else:
-                    # qa-action yoksa, sadece disabled değilse kabul et
+                
+                # 1) ChatGPT'nin bulduğu: data-qa-action="size-in-stock" → kesin stokta
+                if qa and ("size-in-stock" in qa or "in-stock" in qa or "low-on-stock" in qa):
+                    is_in_stock = True
+                    
+                # 2) Enabled class var mı? (ayakkabı için)
+                elif "size-selector-sizes-size--enabled" in cls:
+                    is_in_stock = True
+                    
+                # 3) Explicit disabled işaretleri varsa → stokta değil
+                elif "out-of-stock" in qa or "disabled" in qa or "coming" in cls.lower():
+                    is_in_stock = False
+                    
+                # 4) Qa-action yoksa → disabled değilse kabul et (dikkatli)
+                elif not qa:
+                    # Güvenlik: Çok genel olmasın, en azından size pattern'i doğrula
                     is_in_stock = not disabled
                 
                 if is_in_stock:
                     in_stock.append(size_label)
+                    print(f"[DEBUG] ✅ Beden '{size_label}' stokta kabul edildi (qa={qa}, cls={cls[:50]})")
 
             except StaleElementReferenceException:
                 continue
