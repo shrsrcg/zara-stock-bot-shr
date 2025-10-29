@@ -221,16 +221,9 @@ def check_stock_hm(driver, sizes_to_check):
     try:
         wait = WebDriverWait(driver, 25)
         
-        # Sayfayı kaydır (lazy-load için)
+        # Cookie popup kontrolü (önce cookie'yi kapat)
         try:
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.4);")
-            time.sleep(2)
-        except:
-            pass
-        
-        # Cookie popup kontrolü (gerekirse)
-        try:
-            cookie_button = driver.find_elements(By.CSS_SELECTOR, "button[id*='onetrust'], button[id*='cookie']")
+            cookie_button = driver.find_elements(By.CSS_SELECTOR, "button[id*='onetrust'], button[id*='cookie'], button[class*='cookie']")
             if cookie_button:
                 cookie_button[0].click()
                 print("[DEBUG] H&M cookie popup kapatıldı")
@@ -238,42 +231,88 @@ def check_stock_hm(driver, sizes_to_check):
         except:
             pass
         
-        # Size selector'ın yüklenmesini bekle - daha fazla alternatif selector
+        # Sayfayı kaydır ve dinamik içerik yüklenmesini bekle
+        try:
+            # İlk scroll
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.3);")
+            time.sleep(1.5)
+            # İkinci scroll (daha fazla aşağı)
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.5);")
+            time.sleep(1.5)
+            # Üçüncü scroll (tam aşağı ve geri yukarı - lazy load tetikleme)
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.7);")
+            time.sleep(2)
+            # Yukarı kaydır (size selector genelde yukarıda)
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.2);")
+            time.sleep(1.5)
+            print("[DEBUG] H&M scroll işlemleri tamamlandı")
+        except Exception as e:
+            print(f"[DEBUG] H&M scroll hatası: {e}")
+        
+        # JavaScript ile DOM hazır mı kontrol et ve beklenen elementleri kontrol et
+        try:
+            driver.execute_script("""
+                // Sayfanın tam yüklendiğinden emin ol
+                if (document.readyState !== 'complete') {
+                    return false;
+                }
+                // sizebutton içeren elementler var mı kontrol et
+                var sizeElements = document.querySelectorAll('div[id^="sizebutton-"], div[data-testid^="sizebutton-"]');
+                return sizeElements.length > 0;
+            """)
+        except:
+            pass
+        
+        # Size selector'ın yüklenmesini bekle - daha fazla alternatif selector ve uzun süre
         size_elements = []
         wait_selectors = [
             "div[data-testid^='sizebutton-']",
-            "div[role='radio'][aria-label*='beden']",
             "div[id^='sizebutton-']",
+            "div[role='radio'][aria-label*='beden']",
             "li div[role='radio']",
             "div[data-testid*='size']",
-            "*[aria-label*='beden:']"
+            "*[aria-label*='beden:']",
+            "li[role='radio']",
+            "div[tabindex='0'][role='radio']"
         ]
         
+        selector_found = False
         for wait_sel in wait_selectors:
             try:
                 wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, wait_sel)))
                 print(f"[DEBUG] H&M size selector görüldü (wait selector: {wait_sel})")
-                time.sleep(2)  # Element'lerin tam yüklenmesi için
+                selector_found = True
+                # Element'lerin tam yüklenmesi için daha uzun bekle
+                time.sleep(3)
                 break
             except TimeoutException:
                 continue
         
+        if not selector_found:
+            print("[DEBUG] H&M wait selector bulunamadı, yine de size element aramaya devam ediliyor...")
+            time.sleep(2)  # Yine de biraz bekle
+        
         # Size elementlerini bul - genişletilmiş selector listesi
+        # Analiz sonuçlarına göre: div[id="sizebutton-0"], div[data-testid="sizebutton-0"] formatında
         size_selectors = [
-            "div[data-testid^='sizebutton-']",
-            "div[id^='sizebutton-']",
+            "div[id^='sizebutton-']",  # Öncelik: En spesifik
+            "div[data-testid^='sizebutton-']",  # İkinci öncelik
+            "li > div[id^='sizebutton-']",  # li içinde olabilir
+            "li > div[data-testid^='sizebutton-']",
             "div[role='radio'][aria-label*='beden']",
             "div[role='radio']",
             "li div[role='radio']",
             "div[data-testid*='size']",
             "*[aria-label*='beden:']",
-            "li > div[tabindex='0']"
+            "li > div[tabindex='0']",
+            "div[tabindex='0'][role='radio']"
         ]
         
         seen_size_labels = set()  # Tekrar eden bedenleri filtrelemek için
         for sel in size_selectors:
             try:
                 found = driver.find_elements(By.CSS_SELECTOR, sel)
+                print(f"[DEBUG] H&M selector '{sel}' ile {len(found)} element bulundu")
                 if found:
                     # Text içerenleri filtrele (gerçek beden elementleri)
                     # Analiz sonuçlarına göre: div[id^="sizebutton-"] veya div[data-testid^="sizebutton-"]
@@ -288,20 +327,25 @@ def check_stock_hm(driver, sizes_to_check):
                                 if text not in seen_size_labels:
                                     seen_size_labels.add(text)
                                     filtered.append(el)
-                                    print(f"[DEBUG] H&M beden bulundu: '{text}' (element: {el.tag_name})")
-                        except:
+                                    print(f"[DEBUG] H&M beden bulundu: '{text}' (element: {el.tag_name}, id: {el.get_attribute('id')}, testid: {el.get_attribute('data-testid')})")
+                        except Exception as inner_e:
                             # Fallback: direkt textContent
-                            text = el.text.strip().replace("\xa0", " ").strip().upper()
-                            if text and (text in ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL'] or (text.isdigit() and 28 <= int(text) <= 50)):
-                                if text not in seen_size_labels:
-                                    seen_size_labels.add(text)
-                                    filtered.append(el)
-                                    print(f"[DEBUG] H&M beden bulundu (fallback): '{text}' (element: {el.tag_name})")
+                            try:
+                                text = el.text.strip().replace("\xa0", " ").strip().upper()
+                                if text and (text in ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL'] or (text.isdigit() and 28 <= int(text) <= 50)):
+                                    if text not in seen_size_labels:
+                                        seen_size_labels.add(text)
+                                        filtered.append(el)
+                                        print(f"[DEBUG] H&M beden bulundu (fallback): '{text}' (element: {el.tag_name}, id: {el.get_attribute('id')})")
+                            except:
+                                pass
                     
                     if filtered:
                         print(f"[DEBUG] H&M {len(filtered)} benzersiz size element bulundu (selector: {sel})")
                         size_elements = filtered
                         break
+                    else:
+                        print(f"[DEBUG] H&M selector '{sel}' element buldu ama filtrelemeden geçmedi")
             except Exception as e:
                 print(f"[DEBUG] H&M selector '{sel}' hatası: {e}")
                 continue
@@ -310,13 +354,29 @@ def check_stock_hm(driver, sizes_to_check):
             print("[DEBUG] H&M size element bulunamadı - tüm selector'lar denendi")
             # Debug: sayfanın HTML'ini kontrol et
             try:
-                page_text = driver.page_source[:1000]
-                if "sizebutton" in page_text.lower():
-                    print("[DEBUG] H&M HTML'de 'sizebutton' kelimesi var ama selector bulamadı")
+                page_text = driver.page_source
+                page_lower = page_text.lower()
+                if "sizebutton" in page_lower:
+                    # Kaç tane sizebutton var?
+                    count_id = page_text.count("id=\"sizebutton-")
+                    count_testid = page_text.count("data-testid=\"sizebutton-")
+                    print(f"[DEBUG] H&M HTML'de 'sizebutton' kelimesi var (id count: {count_id}, testid count: {count_testid}) ama selector bulamadı")
+                    # İlk 2000 karakteri logla
+                    size_section = page_text.find("sizebutton")
+                    if size_section > 0:
+                        start = max(0, size_section - 500)
+                        end = min(len(page_text), size_section + 500)
+                        print(f"[DEBUG] H&M sizebutton çevresi (ilk görünen): {page_text[start:end][:200]}...")
                 else:
                     print("[DEBUG] H&M HTML'de 'sizebutton' kelimesi yok")
-            except:
-                pass
+                    # Belki başka bir format var?
+                    if "aria-label" in page_lower and "beden" in page_lower:
+                        print("[DEBUG] H&M HTML'de 'aria-label' ve 'beden' kelimesi var, belki farklı format")
+                    if "role=\"radio\"" in page_lower:
+                        radio_count = page_text.count("role=\"radio\"")
+                        print(f"[DEBUG] H&M HTML'de {radio_count} tane role='radio' elementi var")
+            except Exception as debug_e:
+                print(f"[DEBUG] H&M debug hatası: {debug_e}")
             return []
 
         wanted = set(x.strip().upper() for x in (sizes_to_check or []))
