@@ -140,14 +140,18 @@ def check_stock_zara(driver, sizes_to_check):
         wanted = set(x.strip().upper() for x in (sizes_to_check or []))
 
         in_stock = []
-        for b in buttons:
+        print(f"[DEBUG] Toplam {len(buttons)} buton işlenecek, wanted={wanted}")
+        for idx, b in enumerate(buttons):
             try:
                 size_label = _safe_text(b).upper()
+                print(f"[DEBUG] Buton #{idx+1}: text='{size_label}' (raw: {b.text[:50] if b.text else 'NONE'})")
                 if not size_label:
+                    print(f"[DEBUG] Buton #{idx+1}: size_label boş, atlanıyor")
                     continue
 
                 # Eğer takip listesi verilmişse, önce onlarla filtrele
                 if wanted and (size_label not in wanted):
+                    print(f"[DEBUG] Buton #{idx+1}: '{size_label}' wanted listesinde değil, atlanıyor")
                     continue
 
                 # Buton özelliklerini topla
