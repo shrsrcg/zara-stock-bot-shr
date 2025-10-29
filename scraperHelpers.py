@@ -270,7 +270,7 @@ def check_stock_hm(driver, sizes_to_check):
       - Eşleşme case-insensitive yapılır.
     """
     try:
-        wait = WebDriverWait(driver, 25)
+        wait = WebDriverWait(driver, 5)  # Optimize: 25'ten 5'e düşürüldü
         
         # Cookie popup kontrolü (önce cookie'yi kapat)
         try:
@@ -314,20 +314,12 @@ def check_stock_hm(driver, sizes_to_check):
         except:
             pass
         
-        # Size selector'ın yüklenmesini bekle - ANALİZ SONUÇLARINA GÖRE: sizeButton- (büyük B) formatı
+        # Size selector'ın yüklenmesini bekle - Optimize: Öncelikli selector'lar
         size_elements = []
         wait_selectors = [
-            "div[data-testid^='sizeButton-']",  # EN ÖNEMLİ: Büyük B formatı (analiz sonuçlarına göre)
-            "div[id^='sizeButton-']",  # EN ÖNEMLİ: Büyük B formatı
-            "div[data-testid^='sizebutton-']",  # Küçük b (fallback)
-            "div[id^='sizebutton-']",  # Küçük b (fallback)
-            "li > div[role='radio'][aria-label*='Beden']",  # Büyük B ile (stokta olanlar)
-            "div[role='radio'][aria-label*='beden']",  # Küçük b ile
-            "li div[role='radio']",
-            "div[data-testid*='size']",
-            "*[aria-label*='beden:']",
-            "li[role='radio']",
-            "div[tabindex='0'][role='radio']"
+            "div[data-testid^='sizeButton-']",  # EN ÖNEMLİ: Büyük B formatı
+            "div[id^='sizeButton-']",  # Büyük B formatı (fallback)
+            "*[aria-label*='beden']",  # Genel fallback
         ]
         
         selector_found = False
@@ -343,8 +335,8 @@ def check_stock_hm(driver, sizes_to_check):
                 continue
 
         if not selector_found:
-            print("[DEBUG] H&M wait selector bulunamadı, yine de size element aramaya devam ediliyor...")
-            time.sleep(2)  # Yine de biraz bekle
+            print("[DEBUG] H&M wait selector bulunamadı, debug'a geçiliyor...")
+            time.sleep(1)  # Optimize: 2'den 1'e düşürüldü
         
         # Size elementlerini bul - ANALİZ SONUÇLARINA GÖRE: li > div[id="sizeButton-0"] formatında
         # ÖNEMLİ NOT: ID formatı büyük harfle başlıyor: sizeButton-0 (sizebutton-0 değil!)
@@ -449,8 +441,8 @@ def check_stock_hm(driver, sizes_to_check):
             print("[DEBUG] H&M size element bulunamadı - tüm selector'lar denendi")
             # Debug: sayfanın HTML'ini kontrol et
             try:
-                # Sayfanın tam yüklenmesini bekle
-                time.sleep(2)
+                # Sayfanın tam yüklenmesini bekle (optimize: daha kısa)
+                time.sleep(1)
                 
                 page_text = driver.page_source
                 page_lower = page_text.lower()
@@ -480,8 +472,8 @@ def check_stock_hm(driver, sizes_to_check):
                         aria_beden_elements = driver.find_elements(By.CSS_SELECTOR, "*[aria-label*='beden'], *[aria-label*='Beden']")
                         print(f"[DEBUG] H&M aria-label'da 'beden' geçen {len(aria_beden_elements)} element var")
                         if aria_beden_elements:
-                            # İlk birkaç elementin aria-label'ını göster
-                            for i, el in enumerate(aria_beden_elements[:5]):
+                            # İlk birkaç elementin aria-label'ını göster (optimize: 5'ten 3'e)
+                            for i, el in enumerate(aria_beden_elements[:3]):
                                 try:
                                     aria_val = el.get_attribute("aria-label") or ""
                                     el_tag = el.tag_name
@@ -509,7 +501,8 @@ def check_stock_hm(driver, sizes_to_check):
                         radio_elements = driver.find_elements(By.CSS_SELECTOR, "[role='radio'], [role=\"radio\"]")
                         print(f"[DEBUG] H&M {len(radio_elements)} role='radio' elementi bulundu")
                         if radio_elements:
-                            for i, el in enumerate(radio_elements[:5]):
+                            # Optimize: 5'ten 3'e düşürüldü
+                            for i, el in enumerate(radio_elements[:3]):
                                 try:
                                     aria_val = el.get_attribute("aria-label") or ""
                                     el_id = el.get_attribute("id") or ""
@@ -530,7 +523,8 @@ def check_stock_hm(driver, sizes_to_check):
                     all_lis = driver.find_elements(By.CSS_SELECTOR, "li")
                     print(f"[DEBUG] H&M sayfada toplam {len(all_lis)} li elementi var")
                     if all_lis:
-                        for i, li in enumerate(all_lis[:10]):
+                        # Optimize: 10'dan 5'e düşürüldü
+                        for i, li in enumerate(all_lis[:5]):
                             try:
                                 li_text = li.text.strip()[:100]
                                 li_class = li.get_attribute("class") or ""
