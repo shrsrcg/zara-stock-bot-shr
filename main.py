@@ -475,16 +475,60 @@ if __name__ == "__main__":
                         raw = check_stock_bershka(driver, sizes)
                     elif store == "hm" or store == "h&m":
                         cookie_string = os.environ.get('HM_COOKIE')
-                        product_code = None
+                        product_code_full = None
                         try:
-                            m = re.search(r"productpage\\.(\\d+)", url)
+                            m = re.search(r"productpage\.(\d+)", url)
                             if m:
-                                product_code = m.group(1)
+                                product_code_full = m.group(1)
                         except Exception:
                             pass
-                        if product_code and cookie_string:
-                            raw = check_stock_hm_requests(product_code, sizes, cookie_string)
-                        else:
+
+                        # H&M API çoğu zaman 7 haneli ana ürün kodunu ister (renk/sürüm soneki olmadan)
+                        product_code_base = None
+                        if product_code_full:
+                            # 7+ haneliyse ilk 7 haneyi ana kod olarak dene
+                            if len(product_code_full) >= 7:
+                                product_code_base = product_code_full[:7]
+                            else:
+                                product_code_base = product_code_full
+
+                        raw = []
+                        # Önce requests fallback: cookie + ürün kodu varsa dene
+                        tried_requests = False
+                        if cookie_string and (product_code_base or product_code_full):
+                            tried_requests = True
+                            log.info("[H&M] Requests fallback denenecek: full=%s base=%s cookie_len=%s",
+                                     product_code_full, product_code_base, len(cookie_string))
+                            # 1) Ana kod ile dene
+                            if product_code_base:
+                                try:
+                                    res1 = check_stock_hm_requests(product_code_base, sizes, cookie_string)
+                                except Exception as _e:
+                                    log.warning("[H&M] requests(base) hata: %s", _e)
+                                    res1 = []
+                            else:
+                                res1 = []
+                            # 2) Ana boşsa tam kodu da dene
+                            if not res1 and product_code_full and product_code_full != product_code_base:
+                                try:
+                                    res2 = check_stock_hm_requests(product_code_full, sizes, cookie_string)
+                                except Exception as _e:
+                                    log.warning("[H&M] requests(full) hata: %s", _e)
+                                    res2 = []
+                            else:
+                                res2 = []
+
+                            raw = res1 or res2 or []
+                            log.info("[H&M] Requests fallback sonucu: %s", raw)
+
+                        # Requests boş dönerse DOM helper'a düş
+                        if not raw:
+                            if not cookie_string:
+                                log.warning("[H&M] HM_COOKIE ortam değişkeni boş – sadece DOM denenecek")
+                            if not (product_code_full or product_code_base):
+                                log.warning("[H&M] URL'den ürün kodu çıkarılamadı – sadece DOM denenecek: %s", url)
+                            if tried_requests:
+                                log.info("[H&M] Requests sonuç vermedi, DOM helper'a düşülüyor")
                             raw = check_stock_hm(driver, sizes)
                     elif store == "mango":
                         raw = check_stock_mango(driver, sizes)
