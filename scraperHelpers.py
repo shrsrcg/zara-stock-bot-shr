@@ -322,7 +322,7 @@ def check_stock_hm(driver, sizes_to_check):
                                 print(f"[DEBUG] H&M sayfa HTML uzunluğu (hard reload sonrası): {html_length} karakter")
                             except Exception:
                                 pass
-                    except Exception as _:
+                    except Exception:
                         pass
             
             print("[DEBUG] H&M sayfa yüklendi")
@@ -379,7 +379,7 @@ def check_stock_hm(driver, sizes_to_check):
                 time.sleep(3)
                 break
             except TimeoutException:
-                continue
+                    continue
 
         if not selector_found:
             print("[DEBUG] H&M wait selector bulunamadı, debug'a geçiliyor...")
@@ -702,7 +702,7 @@ def check_stock_hm(driver, sizes_to_check):
                                 if ('json' in mime) or any(k in url for k in ['json', 'variant', 'product', 'article']):
                                     candidate_req_ids.append(params.get('requestId'))
                         except Exception:
-                            continue
+                            pass
 
                     parsed_sizes = set()
                     for rid in candidate_req_ids[-15:]:
@@ -969,7 +969,7 @@ def check_stock_mango(driver, sizes_to_check):
                             if "notavailable" in inner_class:
                                 print(f"[DEBUG] ❌ Mango beden '{size_label}' stokta değil (iç span'de notAvailable: {inner_class[:50]})")
                                 continue
-                    except:
+                    except Exception:
                         pass
 
                     # Button'un HTML'inde notavailable var mı kontrol et
@@ -996,7 +996,7 @@ def check_stock_mango(driver, sizes_to_check):
                             print(f"[DEBUG] ✅ Mango beden '{size_label}' stokta! (parent li'de selectable)")
                             in_stock.append(size_label)
                             continue
-                    except:
+                    except Exception:
                         pass
 
                     # Disabled kontrolü
@@ -1454,7 +1454,7 @@ def check_stock_oysho(driver, sizes_to_check):
                 time.sleep(2)  # Element'lerin tam yüklenmesi için
                 break
             except TimeoutException:
-                continue
+                pass
         
         if not selector_found:
             print("[DEBUG] Oysho size selector görünmedi - tüm wait selector'lar denendi")
