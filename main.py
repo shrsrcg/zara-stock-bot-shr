@@ -147,6 +147,11 @@ def build_driver():
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option("useAutomationExtension", False)
+    # Performance logs for network-based fallbacks
+    try:
+        chrome_options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
+    except Exception:
+        pass
 
     env_chrome = os.getenv("CHROME_BIN", "")
     if env_chrome and os.path.isfile(env_chrome) and os.access(env_chrome, os.X_OK):
