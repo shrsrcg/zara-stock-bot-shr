@@ -138,7 +138,7 @@ def build_driver():
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-software-rasterizer")
     chrome_options.add_argument("--remote-debugging-port=9222")
-    chrome_options.add_argument("--lang=tr-TR")
+    chrome_options.add_argument("--lang=tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7")
     chrome_options.add_argument(
         "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -156,8 +156,21 @@ def build_driver():
     log.info("[DEBUG] Using SELENIUM MANAGER")
     driver = webdriver.Chrome(options=chrome_options)
     try:
+        # Hide automation and set languages early
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-            "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+            "source": """
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                Object.defineProperty(navigator, 'language', { get: () => 'tr-TR' });
+                Object.defineProperty(navigator, 'languages', { get: () => ['tr-TR','tr','en-US','en'] });
+                Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3] });
+            """
+        })
+        # Ensure Accept-Language header for all requests
+        driver.execute_cdp_cmd("Network.enable", {})
+        driver.execute_cdp_cmd("Network.setExtraHTTPHeaders", {
+            "headers": {
+                "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
+            }
         })
     except Exception:
         pass
