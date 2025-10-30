@@ -297,6 +297,19 @@ def check_stock_hm(driver, sizes_to_check):
                 time.sleep(5)  # Ekstra bekleme
                 html_length = len(driver.page_source)
                 print(f"[DEBUG] H&M sayfa HTML uzunluğu (yeniden kontrol): {html_length} karakter")
+                # Hâlâ kısa ise refresh dene (bazı sayfalarda ilk yüklemede içerik gelmiyor)
+                if html_length < 1000:
+                    try:
+                        print("[DEBUG] H&M sayfa yenileniyor (refresh)")
+                        driver.refresh()
+                        WebDriverWait(driver, 10).until(
+                            lambda d: d.execute_script("return document.readyState") == "complete"
+                        )
+                        time.sleep(3)
+                        html_length = len(driver.page_source)
+                        print(f"[DEBUG] H&M sayfa HTML uzunluğu (refresh sonrası): {html_length} karakter")
+                    except Exception as _:
+                        pass
             
             print("[DEBUG] H&M sayfa yüklendi")
         except:
@@ -556,6 +569,57 @@ def check_stock_hm(driver, sizes_to_check):
                 except Exception as e:
                     print(f"[DEBUG] H&M li element kontrol hatası: {e}")
                     
+                # JSON fallback: __NEXT_DATA__ içinden varyantları parse et (H&M Next.js sayfaları)
+                try:
+                    import json
+                    script_elems = driver.find_elements(By.CSS_SELECTOR, "script#__NEXT_DATA__")
+                    if script_elems:
+                        raw_json = script_elems[0].get_attribute("innerHTML") or script_elems[0].get_attribute("textContent") or ""
+                        data = json.loads(raw_json)
+                        wanted = set(x.strip().upper() for x in (sizes_to_check or []))
+
+                        def collect_sizes(obj, acc):
+                            try:
+                                if isinstance(obj, dict):
+                                    # A few common H&M keys: variants, articles, variantSizes, sizes
+                                    keys = obj.keys()
+                                    # Heuristic: an entry with a size-like name/code and availability flag/value
+                                    size_value = (obj.get('size') or obj.get('name') or obj.get('sizeName') or obj.get('code') or obj.get('title'))
+                                    avail = obj.get('inStock')
+                                    if avail is None:
+                                        avail = obj.get('available')
+                                    if avail is None:
+                                        avail = obj.get('availability')
+                                    if avail is None and 'stock' in obj:
+                                        try:
+                                            avail = (int(obj.get('stock') or 0) > 0)
+                                        except:
+                                            pass
+                                    if isinstance(size_value, str):
+                                        label = size_value.strip().upper().replace("\xa0", " ")
+                                        if (label in ['XXS','XS','S','M','L','XL','XXL'] or (label.isdigit() and 28 <= int(label) <= 50)):
+                                            if avail is True or (isinstance(avail, str) and avail.upper() in ['IN_STOCK','AVAILABLE','OK']):
+                                                acc.add(label)
+                                    for v in obj.values():
+                                        collect_sizes(v, acc)
+                                elif isinstance(obj, list):
+                                    for it in obj:
+                                        collect_sizes(it, acc)
+                            except Exception:
+                                pass
+
+                        parsed_in_stock = set()
+                        collect_sizes(data, parsed_in_stock)
+                        parsed_in_stock_list = sorted(parsed_in_stock)
+                        if parsed_in_stock_list:
+                            print(f"[DEBUG] H&M JSON fallback ile stoklar: {parsed_in_stock_list}")
+                            if wanted:
+                                parsed_in_stock_list = [s for s in parsed_in_stock_list if s in wanted]
+                            if parsed_in_stock_list:
+                                return parsed_in_stock_list
+                except Exception as e:
+                    print(f"[DEBUG] H&M JSON fallback hatası: {e}")
+
             except Exception as debug_e:
                 print(f"[DEBUG] H&M debug hatası: {debug_e}")
                 import traceback
