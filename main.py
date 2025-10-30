@@ -493,6 +493,7 @@ if __name__ == "__main__":
                                 product_code_base = product_code_full
 
                         raw = []
+                        hm_indeterminate = False
                         # Önce requests fallback: cookie + ürün kodu varsa dene
                         tried_requests = False
                         if cookie_string and (product_code_base or product_code_full):
@@ -520,6 +521,15 @@ if __name__ == "__main__":
 
                             raw = res1 or res2 or []
                             log.info("[H&M] Requests fallback sonucu: %s", raw)
+
+                            # Eğer requests boş ise ve sayfa HTML çok kısa ise, muhtemelen bloklandık → indeterminate
+                            try:
+                                page_len = len(driver.page_source)
+                            except Exception:
+                                page_len = 0
+                            if not raw and page_len and page_len < 1000:
+                                hm_indeterminate = True
+                                log.info("[H&M] Indeterminate durum: HTML çok kısa (%s) ve requests boş", page_len)
 
                         # Requests boş dönerse DOM helper'a düş
                         if not raw:
@@ -588,7 +598,12 @@ if __name__ == "__main__":
                     else:
                         matched = found_sizes[:]
                     
-                    currently_in_stock = bool(matched)
+                    # H&M özel: indeterminate ise önceki durumu koru (false negative engelle)
+                    if store in ["hm", "h&m"] and 'hm_indeterminate' in locals() and hm_indeterminate:
+                        currently_in_stock = bool(was_in_stock)
+                        log.info("[H&M] Indeterminate -> was=%s korunuyor", was_in_stock)
+                    else:
+                        currently_in_stock = bool(matched)
                     
                     log.info("[FINAL] wanted_sizes=%s", sizes)
                     log.info("[FINAL] found_sizes=%s", found_sizes)
@@ -615,7 +630,7 @@ if __name__ == "__main__":
                     # 7) Durum güncelle
                     last_status[url] = currently_in_stock
                     
-                    if not currently_in_stock:
+                    if not currently_in_stock and not (store in ["hm","h&m"] and 'hm_indeterminate' in locals() and hm_indeterminate):
                         log.info("No stock for %s @ %s", (', '.join(sizes) if sizes else '(any)'), url)
 
                 except Exception as e:

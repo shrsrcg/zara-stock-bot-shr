@@ -1660,7 +1660,19 @@ def check_stock_hm_requests(product_code, sizes_to_check, cookie_string):
     headers = {'Cookie': cookie_string, 'User-Agent': 'Mozilla/5.0', 'Accept-Language': 'tr-TR,tr;q=0.9'}
     try:
         resp = requests.get(url, headers=headers, timeout=10)
-        data = resp.json()
+        if resp.status_code != 200:
+            body_preview = resp.text[:200] if isinstance(resp.text, str) else str(resp.content[:200])
+            print(f"[DEBUG] H&M requests HTTP {resp.status_code} body[:200]={body_preview}")
+            return []
+        # Bazı servisler JSON ön eki ekleyebilir, güvenli parse
+        text = resp.text.lstrip("\ufeff ")
+        if text.startswith(")]}',"):
+            text = text[5:]
+        try:
+            data = resp.json()
+        except Exception:
+            import json as _json
+            data = _json.loads(text)
         available_sizes = []
         wanted = set(x.upper() for x in (sizes_to_check or []))
         for size_info in (data.get('availability', []) or []):
