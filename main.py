@@ -15,7 +15,6 @@ import re
 import requests
 import logging
 
-from scraperHelpers import check
 from dotenv import load_dotenv
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -35,9 +34,9 @@ if 'pygame' not in sys.modules:
 
 # Helpers (Zara/Bershka/H&M/Mango/Stradivarius/Oysho)
 try:
-    from scraperHelpers import check_stock_zara, check_stock_bershka, check_stock_hm, check_stock_mango, check_stock_stradivarius, check_stock_oysho
+    from scraperHelpers import check_stock_zara, check_stock_bershka, check_stock_hm, check_stock_mango, check_stock_stradivarius, check_stock_oysho, check_stock_hm_requests
 except ModuleNotFoundError:
-    from scraperHelpers import check_stock_zara, check_stock_bershka, check_stock_hm, check_stock_mango, check_stock_stradivarius, check_stock_oysho
+    from scraperHelpers import check_stock_zara, check_stock_bershka, check_stock_hm, check_stock_mango, check_stock_stradivarius, check_stock_oysho, check_stock_hm_requests
 
 # -----------------------------
 # LOGGING
