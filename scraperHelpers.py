@@ -1644,3 +1644,33 @@ def check_stock_oysho(driver, sizes_to_check):
         import traceback
         print(f"[DEBUG] Hata detayı:\n{traceback.format_exc()}")
         return []
+    
+    # ------------------------------------------------------------
+    # H&M: requests ile beden kontrolü
+    # ------------------------------------------------------------
+def check_stock_hm_requests(product_code, sizes_to_check, cookie_string):
+"""
+product_code: '1298486'
+sizes_to_check: ['S','M']
+cookie_string: browser'dan alınan cookie stringi
+return: stokta bulunan bedenler, ör: ['S']
+"""
+import requests
+url = f'https://www2.hm.com/hmwebservices/service/product/tr/availability/{product_code}.json'
+headers = {'Cookie': cookie_string, 'User-Agent': 'Mozilla/5.0', 'Accept-Language': 'tr-TR,tr;q=0.9'}
+try:
+    resp = requests.get(url, headers=headers, timeout=10)
+    data = resp.json()
+    available_sizes = []
+    wanted = set(x.upper() for x in (sizes_to_check or []))
+    for size_info in (data.get('availability', []) or []):
+        size_code = size_info.get('sizeName') or size_info.get('size') or ''
+        size_code_up = str(size_code).upper().replace('BEDEN','').strip()
+        in_stock = bool(size_info.get('available', False))
+        if in_stock and (not wanted or size_code_up in wanted):
+            available_sizes.append(size_code_up)
+    print(f'[DEBUG] H&M requests fallback stoklar: {available_sizes}')
+    return available_sizes
+except Exception as e:
+    print(f'[DEBUG] H&M requests fallback hata: {e}')
+    return []

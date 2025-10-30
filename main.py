@@ -15,7 +15,7 @@ import re
 import requests
 import logging
 
-
+from scraperHelpers import check
 from dotenv import load_dotenv
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -475,7 +475,18 @@ if __name__ == "__main__":
                     elif store == "bershka":
                         raw = check_stock_bershka(driver, sizes)
                     elif store == "hm" or store == "h&m":
-                        raw = check_stock_hm(driver, sizes)
+                        cookie_string = os.environ.get('HM_COOKIE')
+                        product_code = None
+                        try:
+                            m = re.search(r"productpage\\.(\\d+)", url)
+                            if m:
+                                product_code = m.group(1)
+                        except Exception:
+                            pass
+                        if product_code and cookie_string:
+                            raw = check_stock_hm_requests(product_code, sizes, cookie_string)
+                        else:
+                            raw = check_stock_hm(driver, sizes)
                     elif store == "mango":
                         raw = check_stock_mango(driver, sizes)
                     elif store == "stradivarius":
