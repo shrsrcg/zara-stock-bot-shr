@@ -1,19 +1,9 @@
 {
   "urls": [
     {
-      "url": "https://www.oysho.com/tr/compressive-raise-up-yuksek-belli-ispanyol-paca-pantolon-l31255254?colorId=780&pelement=191558212&categoryId=0",
-      "store": "oysho",
-      "sizes": ["S"]
-    },
-    {
       "url": "https://www2.hm.com/tr_tr/productpage.1298486001.html",
       "store": "hm",
-      "sizes": ["S", "M"]
-    },
-    {
-      "url": "https://www.zara.com/tr/tr/yuksek-bel-can-paca-pantolon-p03152436.html?v1=483702966",
-      "store": "zara",
-      "sizes": ["S"]
+      "sizes": ["XS", "S"]
     },
     {
       "url": "https://www.zara.com/tr/tr/trf-high-rise-wide-leg-jean-p05575029.html?v1=470151992",
@@ -21,8 +11,8 @@
       "sizes": ["34", "36"]
     },
     {
-      "url": "https://www.zara.com/tr/tr/cift-katli-triko-hirka-p04938126.html?v1=493502165",
-      "store": "zara",
+      "url": "https://www.oysho.com/tr/compressive-raise-up-yuksek-belli-ispanyol-paca-pantolon-l31255254?colorId=780&pelement=191558212&categoryId=0",
+      "store": "oysho",
       "sizes": ["S"]
     }
   ],
