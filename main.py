@@ -44,6 +44,9 @@ except ModuleNotFoundError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
+# Runtime H&M cookie cache (otomatik toplama için)
+hm_cookie_runtime: str | None = None
+
 # -----------------------------
 # CONFIG
 # -----------------------------
@@ -474,7 +477,7 @@ if __name__ == "__main__":
                     elif store == "bershka":
                         raw = check_stock_bershka(driver, sizes)
                     elif store == "hm" or store == "h&m":
-                        cookie_string = os.environ.get('HM_COOKIE')
+                        cookie_string = os.environ.get('HM_COOKIE') or hm_cookie_runtime
                         product_code_full = None
                         try:
                             m = re.search(r"productpage\.(\d+)", url)
@@ -494,6 +497,18 @@ if __name__ == "__main__":
 
                         raw = []
                         hm_indeterminate = False
+                        # Eğer env cookie boşsa, sayfadan otomatik cookie topla (tek sefer)
+                        try:
+                            # Driver zaten bu URL'i açmış durumda; mevcut çerezleri alalım
+                            cookies = driver.get_cookies()
+                            if cookies:
+                                harvested = "; ".join([f"{c.get('name')}={c.get('value')}" for c in cookies if c.get('name') and c.get('value')])
+                                if harvested and (not cookie_string or len(harvested) > len(cookie_string)):
+                                    cookie_string = harvested
+                                    hm_cookie_runtime = harvested  # sonraki turlarda kullan
+                                    log.info("[H&M] Runtime cookie harvested (len=%s)", len(harvested))
+                        except Exception:
+                            pass
                         # Önce requests fallback: cookie + ürün kodu varsa dene
                         tried_requests = False
                         if cookie_string and (product_code_base or product_code_full):
@@ -503,7 +518,7 @@ if __name__ == "__main__":
                             # 1) Ana kod ile dene
                             if product_code_base:
                                 try:
-                                    res1 = check_stock_hm_requests(product_code_base, sizes, cookie_string)
+                                    res1 = check_stock_hm_requests(product_code_base, sizes, cookie_string, referer_url=url)
                                 except Exception as _e:
                                     log.warning("[H&M] requests(base) hata: %s", _e)
                                     res1 = []
@@ -512,7 +527,7 @@ if __name__ == "__main__":
                             # 2) Ana boşsa tam kodu da dene
                             if not res1 and product_code_full and product_code_full != product_code_base:
                                 try:
-                                    res2 = check_stock_hm_requests(product_code_full, sizes, cookie_string)
+                                    res2 = check_stock_hm_requests(product_code_full, sizes, cookie_string, referer_url=url)
                                 except Exception as _e:
                                     log.warning("[H&M] requests(full) hata: %s", _e)
                                     res2 = []
@@ -530,6 +545,26 @@ if __name__ == "__main__":
                             if not raw and page_len and page_len < 1000:
                                 hm_indeterminate = True
                                 log.info("[H&M] Indeterminate durum: HTML çok kısa (%s) ve requests boş", page_len)
+
+                            # Requests boş dönerse ve farklı cookie toplayabildiysek bir kez daha dene
+                            if not raw:
+                                try:
+                                    cookies2 = driver.get_cookies()
+                                    harvested2 = "; ".join([f"{c.get('name')}={c.get('value')}" for c in cookies2 if c.get('name') and c.get('value')])
+                                    if harvested2 and harvested2 != cookie_string:
+                                        log.info("[H&M] Retry with freshly harvested cookie (len=%s)", len(harvested2))
+                                        cookie_string = harvested2
+                                        hm_cookie_runtime = harvested2
+                                        # base → full tekrar dene
+                                        retry1 = check_stock_hm_requests(product_code_base or product_code_full, sizes, cookie_string, referer_url=url)
+                                        if not retry1 and product_code_full and product_code_full != (product_code_base or ""):
+                                            retry2 = check_stock_hm_requests(product_code_full, sizes, cookie_string, referer_url=url)
+                                        else:
+                                            retry2 = []
+                                        raw = retry1 or retry2 or []
+                                        log.info("[H&M] Requests retry sonucu: %s", raw)
+                                except Exception:
+                                    pass
 
                         # Requests boş dönerse DOM helper'a düş
                         if not raw:

@@ -1648,7 +1648,7 @@ def check_stock_oysho(driver, sizes_to_check):
     # ------------------------------------------------------------
     # H&M: requests ile beden kontrolü
     # ------------------------------------------------------------
-def check_stock_hm_requests(product_code, sizes_to_check, cookie_string):
+def check_stock_hm_requests(product_code, sizes_to_check, cookie_string, referer_url: str | None = None):
     """
     product_code: '1298486'
     sizes_to_check: ['S','M']
@@ -1657,7 +1657,24 @@ def check_stock_hm_requests(product_code, sizes_to_check, cookie_string):
     """
     import requests
     url = f'https://www2.hm.com/hmwebservices/service/product/tr/availability/{product_code}.json'
-    headers = {'Cookie': cookie_string, 'User-Agent': 'Mozilla/5.0', 'Accept-Language': 'tr-TR,tr;q=0.9'}
+    # Tarayıcıya daha çok benzeyen header seti
+    headers = {
+        'Cookie': cookie_string,
+        'User-Agent': (
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+            '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+        ),
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Connection': 'keep-alive',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Sec-Fetch-Site': 'same-origin',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Dest': 'empty',
+    }
+    if referer_url:
+        headers['Referer'] = referer_url
     try:
         resp = requests.get(url, headers=headers, timeout=10)
         if resp.status_code != 200:
