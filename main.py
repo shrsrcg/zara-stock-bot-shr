@@ -545,6 +545,15 @@ if __name__ == "__main__":
                             if not raw and page_len and page_len < 1000:
                                 hm_indeterminate = True
                                 log.info("[H&M] Indeterminate durum: HTML çok kısa (%s) ve requests boş", page_len)
+                        else:
+                            # Cookie yoksa bile sayfa kontrolü yap
+                            try:
+                                page_len = len(driver.page_source)
+                                if page_len < 1000:
+                                    hm_indeterminate = True
+                                    log.info("[H&M] Indeterminate: Cookie yok ve HTML kısa (%s)", page_len)
+                            except Exception:
+                                pass
 
                             # Requests boş dönerse ve farklı cookie toplayabildiysek bir kez daha dene
                             if not raw:
@@ -591,6 +600,16 @@ if __name__ == "__main__":
 
                     found_sizes = normalize_found(raw)
                     log.info("[SCRAPER RAW] store=%s found=%s", store, found_sizes)
+                    
+                    # H&M özel: DOM scraper boş döndüyse ve HTML kısa ise indeterminate
+                    if store in ["hm", "h&m"] and not found_sizes:
+                        try:
+                            page_len = len(driver.page_source)
+                            if page_len < 1000:
+                                hm_indeterminate = True
+                                log.info("[H&M] Indeterminate: DOM scraper boş, HTML kısa (%s)", page_len)
+                        except Exception:
+                            pass
                     
                     # 2) DOM teyidi (REQUIRE_DOM_CONFIRM kontrolü ile)
                     # NOT: H&M ve Mango için DOM-CONFIRM atlanıyor çünkü özel scraper fonksiyonları zaten doğru çalışıyor

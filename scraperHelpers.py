@@ -325,6 +325,28 @@ def check_stock_hm(driver, sizes_to_check):
                     except Exception:
                         pass
             
+            # Sayfa gerçekten yüklendi mi kontrol et (size elementleri var mı?)
+            html_length = len(driver.page_source)
+            if html_length < 1000:
+                # Çok kısa HTML = bot detection sayfası, daha agresif bekle
+                print(f"[DEBUG] H&M HTML hâlâ kısa ({html_length}), ekstra bekleme ve retry...")
+                for retry_num in range(3):
+                    time.sleep(3)
+                    try:
+                        driver.refresh()
+                        WebDriverWait(driver, 15).until(
+                            lambda d: d.execute_script("return document.readyState") == "complete"
+                        )
+                        time.sleep(4)
+                        html_length = len(driver.page_source)
+                        print(f"[DEBUG] H&M retry {retry_num+1}: HTML uzunluğu={html_length}")
+                        if html_length >= 1000:
+                            break
+                    except Exception:
+                        pass
+                if html_length < 1000:
+                    print(f"[DEBUG] H&M sayfa yüklenemedi (HTML={html_length}), DOM scraper çalışmayacak")
+            
             print("[DEBUG] H&M sayfa yüklendi")
         except:
             print("[DEBUG] H&M sayfa yükleme beklemesi timeout oldu, devam ediliyor...")
@@ -333,16 +355,39 @@ def check_stock_hm(driver, sizes_to_check):
         try:
             # İlk scroll
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.3);")
-            time.sleep(1.5)
+            time.sleep(2)
             # İkinci scroll (daha fazla aşağı)
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.5);")
-            time.sleep(1.5)
+            time.sleep(2)
             # Üçüncü scroll (tam aşağı ve geri yukarı - lazy load tetikleme)
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.7);")
-            time.sleep(2)
+            time.sleep(3)
             # Yukarı kaydır (size selector genelde yukarıda)
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.2);")
-            time.sleep(2)  # Biraz daha uzun bekle
+            time.sleep(3)  # Biraz daha uzun bekle
+            
+            # Son kontrol: Size elementleri var mı?
+            test_selectors = [
+                "div[data-testid^='sizeButton-']",
+                "div[id^='sizeButton-']",
+                "div[role='radio'][aria-label*='beden']",
+                "li > div[tabindex='0']"
+            ]
+            found_any = False
+            for sel in test_selectors:
+                try:
+                    els = driver.find_elements(By.CSS_SELECTOR, sel)
+                    if els:
+                        found_any = True
+                        print(f"[DEBUG] H&M scroll sonrası size elementi bulundu (selector: {sel}, count: {len(els)})")
+                        break
+                except:
+                    pass
+            
+            if not found_any:
+                print("[DEBUG] H&M scroll sonrası hiç size elementi bulunamadı, ekstra bekleme...")
+                time.sleep(5)
+            
             print("[DEBUG] H&M scroll işlemleri tamamlandı")
         except Exception as e:
             print(f"[DEBUG] H&M scroll hatası: {e}")
