@@ -732,88 +732,88 @@ def check_stock_hm(driver, sizes_to_check):
         except Exception as e:
             print(f"[DEBUG] H&M JSON fallback hatası: {e}")
 
-                # Network fallback: performance loglarından JSON response parse et
+        # Network fallback: performance loglarından JSON response parse et
+        try:
+            import json
+            try:
+                perf_logs = driver.get_log('performance')
+            except Exception:
+                perf_logs = []
+            candidate_req_ids = []
+            for entry in perf_logs[-120:]:
                 try:
-                    import json
-                    try:
-                        perf_logs = driver.get_log('performance')
-                    except Exception:
-                        perf_logs = []
-                    candidate_req_ids = []
-                    for entry in perf_logs[-120:]:
-                        try:
-                            msg = json.loads(entry.get('message', '{}')).get('message', {})
-                            if msg.get('method') == 'Network.responseReceived':
-                                params = msg.get('params', {})
-                                resp = params.get('response', {})
-                                mime = (resp.get('mimeType') or '').lower()
-                                url = (resp.get('url') or '').lower()
-                                if ('json' in mime) or any(k in url for k in ['json', 'variant', 'product', 'article']):
-                                    candidate_req_ids.append(params.get('requestId'))
-                        except Exception:
-                            pass
+                    msg = json.loads(entry.get('message', '{}')).get('message', {})
+                    if msg.get('method') == 'Network.responseReceived':
+                        params = msg.get('params', {})
+                        resp = params.get('response', {})
+                        mime = (resp.get('mimeType') or '').lower()
+                        url = (resp.get('url') or '').lower()
+                        if ('json' in mime) or any(k in url for k in ['json', 'variant', 'product', 'article']):
+                            candidate_req_ids.append(params.get('requestId'))
+                except Exception:
+                    pass
 
-                    parsed_sizes = set()
-                    for rid in candidate_req_ids[-15:]:
-                        if not rid:
-                            continue
-                        body = None
-                        try:
-                            body = driver.execute_cdp_cmd('Network.getResponseBody', {'requestId': rid})
-                        except Exception:
-                            body = None
-                        if not body or not body.get('body'):
-                            continue
-                        try:
-                            data = json.loads(body['body'])
-                        except Exception:
+            parsed_sizes = set()
+            for rid in candidate_req_ids[-15:]:
+                if not rid:
+                    continue
+                body = None
+                try:
+                    body = driver.execute_cdp_cmd('Network.getResponseBody', {'requestId': rid})
+                except Exception:
+                    body = None
+                if not body or not body.get('body'):
+                    continue
+                try:
+                    data = json.loads(body['body'])
+                except Exception:
                     continue
 
-                        def collect_sizes(obj, acc):
-                            try:
-                                if isinstance(obj, dict):
-                                    size_value = (obj.get('size') or obj.get('name') or obj.get('sizeName') or obj.get('code') or obj.get('title'))
-                                    avail = obj.get('inStock')
-                                    if avail is None:
-                                        avail = obj.get('available')
-                                    if avail is None:
-                                        avail = obj.get('availability')
-                                    if avail is None and 'stock' in obj:
-                                        try:
-                                            avail = (int(obj.get('stock') or 0) > 0)
-                                        except Exception:
-                                            pass
-                                    if isinstance(size_value, str):
-                                        label = size_value.strip().upper().replace("\xa0", " ")
-                                        if (label in ['XXS','XS','S','M','L','XL','XXL'] or (label.isdigit() and 28 <= int(label) <= 50)):
-                                            if avail is True or (isinstance(avail, str) and str(avail).upper() in ['IN_STOCK','AVAILABLE','OK']):
-                                                acc.add(label)
-                                    for v in obj.values():
-                                        collect_sizes(v, acc)
-                                elif isinstance(obj, list):
-                                    for it in obj:
-                                        collect_sizes(it, acc)
-                            except Exception:
-                                pass
+                def collect_sizes(obj, acc):
+                    try:
+                        if isinstance(obj, dict):
+                            size_value = (obj.get('size') or obj.get('name') or obj.get('sizeName') or obj.get('code') or obj.get('title'))
+                            avail = obj.get('inStock')
+                            if avail is None:
+                                avail = obj.get('available')
+                            if avail is None:
+                                avail = obj.get('availability')
+                            if avail is None and 'stock' in obj:
+                                try:
+                                    avail = (int(obj.get('stock') or 0) > 0)
+                                except Exception:
+                                    pass
+                            if isinstance(size_value, str):
+                                label = size_value.strip().upper().replace("\xa0", " ")
+                                if (label in ['XXS','XS','S','M','L','XL','XXL'] or (label.isdigit() and 28 <= int(label) <= 50)):
+                                    if avail is True or (isinstance(avail, str) and str(avail).upper() in ['IN_STOCK','AVAILABLE','OK']):
+                                        acc.add(label)
+                            for v in obj.values():
+                                collect_sizes(v, acc)
+                        elif isinstance(obj, list):
+                            for it in obj:
+                                collect_sizes(it, acc)
+                    except Exception:
+                        pass
 
-                        collect_sizes(data, parsed_sizes)
+                collect_sizes(data, parsed_sizes)
 
-                    parsed_list = sorted(parsed_sizes)
-                    if parsed_list:
-                        print(f"[DEBUG] H&M Network fallback stoklar: {parsed_list}")
-                        wanted = set(x.strip().upper() for x in (sizes_to_check or []))
-                        if wanted:
-                            parsed_list = [s for s in parsed_list if s in wanted]
-                        if parsed_list:
-                            return parsed_list
-                except Exception as e:
-                    print(f"[DEBUG] H&M network fallback hatası: {e}")
+            parsed_list = sorted(parsed_sizes)
+            if parsed_list:
+                print(f"[DEBUG] H&M Network fallback stoklar: {parsed_list}")
+                wanted = set(x.strip().upper() for x in (sizes_to_check or []))
+                if wanted:
+                    parsed_list = [s for s in parsed_list if s in wanted]
+                if parsed_list:
+                    return parsed_list
+        except Exception as e:
+            print(f"[DEBUG] H&M network fallback hatası: {e}")
 
-            except Exception as debug_e:
-                print(f"[DEBUG] H&M debug hatası: {debug_e}")
-                import traceback
-                print(f"[DEBUG] H&M debug hata detayı: {traceback.format_exc()}")
-            return []
+    except Exception as debug_e:
+        print(f"[DEBUG] H&M debug hatası: {debug_e}")
+        import traceback
+        print(f"[DEBUG] H&M debug hata detayı: {traceback.format_exc()}")
+    return []
 
         wanted = set(x.strip().upper() for x in (sizes_to_check or []))
         in_stock = []
