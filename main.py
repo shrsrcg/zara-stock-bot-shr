@@ -141,14 +141,18 @@ def build_driver():
     chrome_options.add_argument("--disable-software-rasterizer")
     chrome_options.add_argument("--remote-debugging-port=9222")
     chrome_options.add_argument("--lang=tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7")
+    # Güncel Chrome version (131) - daha gerçekçi
     chrome_options.add_argument(
         "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     )
-    # Anti-bot
+    # Anti-bot - gelişmiş
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
     chrome_options.add_experimental_option("useAutomationExtension", False)
+    # Daha gerçekçi görünmek için
+    chrome_options.add_argument("--disable-features=IsolateOrigins,site-per-process")
+    chrome_options.add_argument("--disable-site-isolation-trials")
     # Performance logs for network-based fallbacks
     try:
         chrome_options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
@@ -163,24 +167,69 @@ def build_driver():
     log.info("[DEBUG] Using SELENIUM MANAGER")
     driver = webdriver.Chrome(options=chrome_options)
     try:
-        # Hide automation and set languages early
+        # Gelişmiş anti-bot: navigator ve chrome objelerini gizle
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
             "source": """
+                // navigator.webdriver'ı tamamen gizle
                 Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                
+                // Language ayarları
                 Object.defineProperty(navigator, 'language', { get: () => 'tr-TR' });
                 Object.defineProperty(navigator, 'languages', { get: () => ['tr-TR','tr','en-US','en'] });
-                Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3] });
+                
+                // Plugins spoofing (daha gerçekçi)
+                Object.defineProperty(navigator, 'plugins', { 
+                    get: () => [
+                        { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
+                        { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
+                        { name: 'Native Client', filename: 'internal-nacl-plugin' }
+                    ]
+                });
+                
+                // Permissions API spoofing
+                const originalQuery = window.navigator.permissions.query;
+                window.navigator.permissions.query = (parameters) => (
+                    parameters.name === 'notifications' ?
+                        Promise.resolve({ state: Notification.permission }) :
+                        originalQuery(parameters)
+                );
+                
+                // Chrome object'i gizle (eğer varsa)
+                if (window.chrome) {
+                    Object.defineProperty(window, 'chrome', {
+                        get: () => ({ runtime: {} })
+                    });
+                }
+                
+                // WebGL vendor/renderer spoofing (opsiyonel)
+                const getParameter = WebGLRenderingContext.prototype.getParameter;
+                WebGLRenderingContext.prototype.getParameter = function(parameter) {
+                    if (parameter === 37445) { // UNMASKED_VENDOR_WEBGL
+                        return 'Intel Inc.';
+                    }
+                    if (parameter === 37446) { // UNMASKED_RENDERER_WEBGL
+                        return 'Intel Iris OpenGL Engine';
+                    }
+                    return getParameter.call(this, parameter);
+                };
             """
         })
-        # Ensure Accept-Language header for all requests
+        # Network headers - daha gerçekçi
         driver.execute_cdp_cmd("Network.enable", {})
         driver.execute_cdp_cmd("Network.setExtraHTTPHeaders", {
             "headers": {
-                "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
+                "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-User": "?1",
+                "Sec-Fetch-Dest": "document",
+                "Upgrade-Insecure-Requests": "1"
             }
         })
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("[DEBUG] CDP script hatası (devam ediliyor): %s", e)
     log.info("[DEBUG] ChromeDriver READY (Selenium Manager)")
     return driver
 

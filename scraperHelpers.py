@@ -341,8 +341,8 @@ def check_stock_hm(driver, sizes_to_check):
                         html_length = len(driver.page_source)
                         print(f"[DEBUG] H&M retry {retry_num+1}: HTML uzunluğu={html_length}")
                         if html_length >= 1000:
-                            break
-                    except Exception:
+                    break
+            except Exception:
                         pass
                 if html_length < 1000:
                     print(f"[DEBUG] H&M sayfa yüklenemedi (HTML={html_length}), DOM scraper çalışmayacak")
@@ -424,7 +424,7 @@ def check_stock_hm(driver, sizes_to_check):
                 time.sleep(3)
                 break
             except TimeoutException:
-                    continue
+                continue
 
         if not selector_found:
             print("[DEBUG] H&M wait selector bulunamadı, debug'a geçiliyor...")
@@ -640,7 +640,7 @@ def check_stock_hm(driver, sizes_to_check):
                     if script_elems:
                         raw_json = script_elems[0].get_attribute("innerHTML") or script_elems[0].get_attribute("textContent") or ""
                         data = json.loads(raw_json)
-                        wanted = set(x.strip().upper() for x in (sizes_to_check or []))
+        wanted = set(x.strip().upper() for x in (sizes_to_check or []))
 
                         def collect_sizes(obj, acc):
                             try:
@@ -669,8 +669,8 @@ def check_stock_hm(driver, sizes_to_check):
                                 elif isinstance(obj, list):
                                     for it in obj:
                                         collect_sizes(it, acc)
-                            except Exception:
-                                pass
+                    except Exception:
+                        pass
 
                         parsed_in_stock = set()
                         collect_sizes(data, parsed_in_stock)
@@ -763,7 +763,7 @@ def check_stock_hm(driver, sizes_to_check):
                         try:
                             data = json.loads(body['body'])
                         except Exception:
-                            continue
+                    continue
 
                         def collect_sizes(obj, acc):
                             try:
@@ -846,7 +846,7 @@ def check_stock_hm(driver, sizes_to_check):
                     # "stokta. beden seç." varsa stok var
                     elif "stokta" in aria_label_lower and "beden seç" in aria_label_lower:
                         print(f"[DEBUG] ✅ H&M beden '{size_label}' stokta! (aria-label: {aria_label[:50]})")
-                        in_stock.append(size_label)
+                    in_stock.append(size_label)
                     # Sadece "stokta" varsa ama "stokta yok" yoksa
                     elif "stokta" in aria_label_lower:
                         print(f"[DEBUG] ✅ H&M beden '{size_label}' stokta! (aria-label: {aria_label[:50]})")
@@ -1013,7 +1013,7 @@ def check_stock_mango(driver, sizes_to_check):
                             inner_class = (inner_spans[0].get_attribute("class") or "").lower()
                             if "notavailable" in inner_class:
                                 print(f"[DEBUG] ❌ Mango beden '{size_label}' stokta değil (iç span'de notAvailable: {inner_class[:50]})")
-                                continue
+                    continue
                     except Exception:
                         pass
 
@@ -1030,7 +1030,7 @@ def check_stock_mango(driver, sizes_to_check):
                     # selectable class kontrolü (button level)
                     if "selectable" in class_lower:
                         print(f"[DEBUG] ✅ Mango beden '{size_label}' stokta! (selectable class)")
-                        in_stock.append(size_label)
+                    in_stock.append(size_label)
                         continue
 
                     # Parent li'de selectable var mı?
@@ -1040,14 +1040,14 @@ def check_stock_mango(driver, sizes_to_check):
                         if "selectable" in parent_class:
                             print(f"[DEBUG] ✅ Mango beden '{size_label}' stokta! (parent li'de selectable)")
                             in_stock.append(size_label)
-                            continue
-                    except Exception:
+                continue
+            except Exception:
                         pass
 
                     # Disabled kontrolü
                     if button.get_attribute("disabled") or button.get_attribute("aria-disabled") == "true":
                         print(f"[DEBUG] ❌ Mango beden '{size_label}' disabled")
-                        continue
+                continue
 
                     # Belirsiz durum - varsayılan olarak stokta değil
                     print(f"[DEBUG] ❌ Mango beden '{size_label}' stokta değil (belirsiz, selectable yok)")
@@ -1246,13 +1246,13 @@ def check_stock_stradivarius(driver, sizes_to_check):
                 try:
                     # Önce UL container'ı dene
                     container = btn.find_element(By.XPATH, "./ancestor::ul[1]")
-                except Exception:
+        except Exception:
                     pass
                 if container is None:
                     try:
                         # Sonra div içinde product-size geçen sınıfı olan container'ı dene
                         container = btn.find_element(By.XPATH, "./ancestor::div[contains(@class,'product-size')][1]")
-                    except Exception:
+    except Exception:
                         pass
                 # Hiçbiri bulunamazsa, bir üst div'e bağla (gevşek fallback)
                 if container is None:
@@ -1498,7 +1498,7 @@ def check_stock_oysho(driver, sizes_to_check):
                 selector_found = True
                 time.sleep(2)  # Element'lerin tam yüklenmesi için
                 break
-            except TimeoutException:
+    except TimeoutException:
                 pass
         
         if not selector_found:
@@ -1702,24 +1702,32 @@ def check_stock_hm_requests(product_code, sizes_to_check, cookie_string, referer
     """
     import requests
     url = f'https://www2.hm.com/hmwebservices/service/product/tr/availability/{product_code}.json'
-    # Tarayıcıya daha çok benzeyen header seti
+    # Gelişmiş header seti - daha gerçekçi browser fingerprinting
     headers = {
         'Cookie': cookie_string,
         'User-Agent': (
             'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
-            '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+            '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
         ),
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
         'Connection': 'keep-alive',
         'Cache-Control': 'no-cache',
         'Pragma': 'no-cache',
         'Sec-Fetch-Site': 'same-origin',
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Dest': 'empty',
+        'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Linux"',
+        'Origin': 'https://www2.hm.com',
     }
     if referer_url:
         headers['Referer'] = referer_url
+    else:
+        # Referer yoksa default H&M product page
+        headers['Referer'] = f'https://www2.hm.com/tr_tr/productpage.{product_code}.html'
     try:
         resp = requests.get(url, headers=headers, timeout=10)
         if resp.status_code != 200:
@@ -1732,7 +1740,7 @@ def check_stock_hm_requests(product_code, sizes_to_check, cookie_string, referer
             text = text[5:]
         try:
             data = resp.json()
-        except Exception:
+    except Exception:
             import json as _json
             data = _json.loads(text)
         available_sizes = []
