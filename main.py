@@ -402,7 +402,8 @@ def decide_and_notify(url: str,
         return False
 
     # Mesaj: Roborock özel (beden yok) veya diğer mağazalar (beden var)
-    if store == "roborock" and 'STOCK' in f:
+    # Not: f normalize edilmiş (casefold), bu yüzden 'stock' kontrol ediyoruz
+    if store == "roborock" and 'stock' in f:
         msg = f"🛍️ Roborock ürünü stokta!!!!\nLink: {url}"
     else:
         # Mesaj: yalnızca eşleşen bedenleri yaz (wanted varsa)
