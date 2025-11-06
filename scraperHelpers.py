@@ -1748,3 +1748,67 @@ def check_stock_hm_requests(product_code, sizes_to_check, cookie_string, referer
     except Exception as e:
         print(f'[DEBUG] H&M requests fallback hata: {e}')
         return []
+
+
+# ------------------------------------------------------------
+# ROBOROCK: Sepete Ekle butonu disabled/text kontrolü (GEÇİCİ - KOLAYCA KALDIRILABİLİR)
+# ------------------------------------------------------------
+def check_stock_roborock(driver, sizes_to_check=None):
+    """
+    Roborock stok kontrolü (Shopify tabanlı).
+    Girdi  : driver, sizes_to_check (Roborock'ta beden yok, bu parametre kullanılmaz ama uyumluluk için var)
+    Çıktı  : stokta ise ['STOCK'] (tek eleman), yoksa []
+    Hata   : []
+    
+    Stok durumu tespiti:
+    - Buton text: "Stokta yok" → stok yok
+    - Buton text: "Sepete Ekle" → stok var
+    - Buton disabled: true → stok yok
+    - Buton disabled: false → stok var
+    
+    Selector: button.as-add2cart veya button[class*="as-add2cart"]
+    """
+    try:
+        wait = WebDriverWait(driver, 20)
+        
+        # Cookie/overlay kapatma (opsiyonel)
+        try:
+            time.sleep(1)  # Sayfa yüklenmesi için kısa bekleme
+        except Exception:
+            pass
+        
+        # Sepete Ekle butonunu bul
+        try:
+            button = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "button.as-add2cart, button[class*='as-add2cart']")))
+        except TimeoutException:
+            # Alternatif selector dene
+            try:
+                button = driver.find_element(By.CSS_SELECTOR, "button[type='submit'][name='add'], button[class*='add2cart']")
+            except NoSuchElementException:
+                print("[DEBUG] Roborock: Sepete Ekle butonu bulunamadı")
+                return []
+        
+        # Buton durumunu kontrol et
+        button_text = _safe_text(button).strip()
+        is_disabled = button.is_enabled() == False or button.get_attribute("disabled") is not None
+        
+        print(f"[DEBUG] Roborock: Buton text='{button_text}', disabled={is_disabled}")
+        
+        # Stok yok göstergeleri
+        if is_disabled or "stokta yok" in button_text.lower() or "stok yok" in button_text.lower():
+            print("[DEBUG] Roborock: Stok YOK (buton disabled veya 'stokta yok' text)")
+            return []
+        
+        # Stok var göstergeleri
+        if "sepete ekle" in button_text.lower() and not is_disabled:
+            print("[DEBUG] Roborock: Stok VAR (buton enabled ve 'Sepete Ekle' text)")
+            # Roborock'ta beden yok, bu yüzden ['STOCK'] döndürüyoruz (tek ürün)
+            return ['STOCK']
+        
+        # Belirsiz durum: varsayılan olarak stok yok say
+        print("[DEBUG] Roborock: Belirsiz durum, stok yok varsayılıyor")
+        return []
+        
+    except Exception as e:
+        print(f"[DEBUG] Roborock hata: {e}")
+        return []

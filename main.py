@@ -32,11 +32,11 @@ if 'pygame' not in sys.modules:
     sys.modules['pygame'] = pygame_stub
 # --- HOTFIX SONU ---
 
-# Helpers (Zara/Bershka/H&M/Mango/Stradivarius/Oysho)
+# Helpers (Zara/Bershka/H&M/Mango/Stradivarius/Oysho/Roborock)
 try:
-    from scraperHelpers import check_stock_zara, check_stock_bershka, check_stock_hm, check_stock_mango, check_stock_stradivarius, check_stock_oysho, check_stock_hm_requests
+    from scraperHelpers import check_stock_zara, check_stock_bershka, check_stock_hm, check_stock_mango, check_stock_stradivarius, check_stock_oysho, check_stock_hm_requests, check_stock_roborock
 except ModuleNotFoundError:
-    from scraperHelpers import check_stock_zara, check_stock_bershka, check_stock_hm, check_stock_mango, check_stock_stradivarius, check_stock_oysho, check_stock_hm_requests
+    from scraperHelpers import check_stock_zara, check_stock_bershka, check_stock_hm, check_stock_mango, check_stock_stradivarius, check_stock_oysho, check_stock_hm_requests, check_stock_roborock
 
 # -----------------------------
 # LOGGING
@@ -373,7 +373,8 @@ def decide_and_notify(url: str,
                       was_available: bool | None,
                       always_notify_on_true: bool,
                       now_ts: int,
-                      cooldown_seconds: int) -> bool:
+                      cooldown_seconds: int,
+                      store: str | None = None) -> bool:
     """wanted boş DEĞİLSE: yalnızca intersection varsa bildir; wanted boşsa found boş değilse bildir."""
     w = _norm_list(wanted_sizes)
     f = _norm_list(found_sizes)
@@ -400,13 +401,17 @@ def decide_and_notify(url: str,
         log.info("[NOTIFY] atlandı: already True & always_notify_on_true=False")
         return False
 
-    # Mesaj: yalnızca eşleşen bedenleri yaz (wanted varsa)
-    if w:
-        match_disp = ", ".join(sorted({x.upper() for x in intersection}))
+    # Mesaj: Roborock özel (beden yok) veya diğer mağazalar (beden var)
+    if store == "roborock" and 'STOCK' in f:
+        msg = f"🛍️ Roborock ürünü stokta!!!!\nLink: {url}"
     else:
-        match_disp = ", ".join(sorted({x.upper() for x in f}))
-
-    msg = f"🛍️ {match_disp} beden stokta!!!!\nLink: {url}"
+        # Mesaj: yalnızca eşleşen bedenleri yaz (wanted varsa)
+        if w:
+            match_disp = ", ".join(sorted({x.upper() for x in intersection}))
+        else:
+            match_disp = ", ".join(sorted({x.upper() for x in f}))
+        msg = f"🛍️ {match_disp} beden stokta!!!!\nLink: {url}"
+    
     ok = send_telegram_message(msg)
 
     if ok and cooldown_seconds > 0:
@@ -476,6 +481,10 @@ if __name__ == "__main__":
                         raw = check_stock_zara(driver, sizes)
                     elif store == "bershka":
                         raw = check_stock_bershka(driver, sizes)
+                    # ===== GEÇİCİ: ROBOROCK DESTEĞİ (KOLAYCA KALDIRILABİLİR) =====
+                    elif store == "roborock":
+                        raw = check_stock_roborock(driver, sizes)
+                    # ===== ROBOROCK SONU =====
                     elif store == "hm" or store == "h&m":
                         cookie_string = os.environ.get('HM_COOKIE') or hm_cookie_runtime
                         product_code_full = None
@@ -601,6 +610,15 @@ if __name__ == "__main__":
                     found_sizes = normalize_found(raw)
                     log.info("[SCRAPER RAW] store=%s found=%s", store, found_sizes)
                     
+                    # Roborock özel: ['STOCK'] döndüyse stok var demektir (beden yok, tek ürün)
+                    if store == "roborock":
+                        if 'STOCK' in found_sizes:
+                            found_sizes = ['STOCK']  # Tek ürün, beden yok
+                            log.info("[Roborock] Stok VAR tespit edildi")
+                        else:
+                            found_sizes = []  # Stok yok
+                            log.info("[Roborock] Stok YOK tespit edildi")
+                    
                     # H&M özel: DOM scraper boş döndüyse ve HTML kısa ise indeterminate
                     if store in ["hm", "h&m"] and not found_sizes:
                         try:
@@ -612,7 +630,7 @@ if __name__ == "__main__":
                             pass
                     
                     # 2) DOM teyidi (REQUIRE_DOM_CONFIRM kontrolü ile)
-                    # NOT: H&M ve Mango için DOM-CONFIRM atlanıyor çünkü özel scraper fonksiyonları zaten doğru çalışıyor
+                    # NOT: H&M, Mango ve Roborock için DOM-CONFIRM atlanıyor çünkü özel scraper fonksiyonları zaten doğru çalışıyor
                     enabled_dom_sizes = []
                     if REQUIRE_DOM_CONFIRM:
                         if store == "zara":
@@ -620,6 +638,10 @@ if __name__ == "__main__":
                         elif store == "bershka":
                             # Bershka için dom kontrolü için aynı genel fonksiyonu kullan
                             enabled_dom_sizes = get_enabled_size_buttons(driver)
+                        elif store == "roborock":
+                            # Roborock için DOM-CONFIRM kullanma - beden yok, tek ürün
+                            log.info("[DOM-CONFIRM] Roborock için DOM-CONFIRM atlanıyor (beden yok, tek ürün)")
+                            enabled_dom_sizes = []  # Boş liste = filtreleme yok
                         elif store in ["hm", "h&m"]:
                             # H&M için DOM-CONFIRM kullanma - özel scraper fonksiyonu zaten doğru çalışıyor
                             log.info("[DOM-CONFIRM] H&M için DOM-CONFIRM atlanıyor (özel scraper kullanılıyor)")
@@ -644,9 +666,14 @@ if __name__ == "__main__":
                     was_in_stock = last_status.get(url)
                     
                     # Eşleşen bedenleri hesapla
-                    # Eğer wanted_sizes varsa, sadece onlarla eşleşenleri kullan
-                    # Eğer wanted_sizes boşsa, tüm found_sizes'ı kullan
-                    if sizes:
+                    # Roborock özel: beden yok, 'STOCK' varsa matched = ['STOCK']
+                    if store == "roborock":
+                        if 'STOCK' in found_sizes:
+                            matched = ['STOCK']
+                        else:
+                            matched = []
+                    # Diğer mağazalar: Eğer wanted_sizes varsa, sadece onlarla eşleşenleri kullan
+                    elif sizes:
                         upper_sizes = {s.upper() for s in sizes}
                         matched = [s for s in found_sizes if s.upper() in upper_sizes]
                     else:
@@ -678,7 +705,8 @@ if __name__ == "__main__":
                         was_available=was_in_stock,
                         always_notify_on_true=ALWAYS_NOTIFY_ON_TRUE,
                         now_ts=now_ts,
-                        cooldown_seconds=COOLDOWN_SECONDS
+                        cooldown_seconds=COOLDOWN_SECONDS,
+                        store=store  # Roborock için özel mesaj için
                     )
 
                     # 7) Durum güncelle
