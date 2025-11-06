@@ -729,9 +729,8 @@ def check_stock_hm(driver, sizes_to_check):
                                 return parsed_in_stock_list
                 except Exception:
                     pass
-            except Exception as e:
-                except Exception as e:
-                    print(f"[DEBUG] H&M JSON fallback hatası: {e}")
+        except Exception as e:
+            print(f"[DEBUG] H&M JSON fallback hatası: {e}")
 
                 # Network fallback: performance loglarından JSON response parse et
                 try:
