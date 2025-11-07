@@ -815,65 +815,6 @@ def check_stock_hm(driver, sizes_to_check):
         print(f"[DEBUG] H&M debug hata detayı: {traceback.format_exc()}")
     return []
 
-        wanted = set(x.strip().upper() for x in (sizes_to_check or []))
-        in_stock = []
-        
-        for element in size_elements:
-            try:
-                # Size text'i bul (div[dir="ltr"] içinde veya textContent'te)
-                try:
-                    size_text_elem = element.find_element(By.CSS_SELECTOR, "div[dir='ltr']")
-                    size_label = size_text_elem.text.strip().upper()
-                except:
-                    # Fallback: direkt textContent
-                    size_label = element.text.strip().upper()
-
-                if not size_label:
-                    continue
-
-                # Normalize (trim whitespace)
-                size_label = size_label.replace("\xa0", " ").strip().upper()
-                
-                # İstenen beden kontrolü
-                if not wanted or size_label in wanted:
-                    # H&M stok kontrolü - Analiz sonuçlarına göre:
-                    # aria-label="... stokta. beden seç." → stok VAR
-                    # aria-label="... stokta yok. benzer ürünleri görmek..." → stok YOK
-                    
-                    aria_label = element.get_attribute("aria-label") or ""
-                    aria_label_lower = aria_label.lower()
-                    
-                    # Analiz sonuçlarına göre: "stokta yok" veya "benzer ürünleri görmek" varsa stok yok
-                    if "stokta yok" in aria_label_lower or "benzer ürünleri görmek" in aria_label_lower:
-                        print(f"[DEBUG] ❌ H&M beden '{size_label}' stokta değil (aria-label: {aria_label[:80]})")
-                        continue
-                    # "stokta. beden seç." varsa stok var
-                    elif "stokta" in aria_label_lower and "beden seç" in aria_label_lower:
-                        print(f"[DEBUG] ✅ H&M beden '{size_label}' stokta! (aria-label: {aria_label[:50]})")
-                    in_stock.append(size_label)
-                    # Sadece "stokta" varsa ama "stokta yok" yoksa
-                    elif "stokta" in aria_label_lower:
-                        print(f"[DEBUG] ✅ H&M beden '{size_label}' stokta! (aria-label: {aria_label[:50]})")
-                        in_stock.append(size_label)
-                    else:
-                        # aria-label belirsizse, disabled kontrolü yap
-                        if element.get_attribute("aria-disabled") == "true":
-                            print(f"[DEBUG] ❌ H&M beden '{size_label}' disabled (aria-label yok)")
-                        else:
-                            # Belirsiz durum - varsayılan olarak stokta değil
-                            print(f"[DEBUG] ❌ H&M beden '{size_label}' stokta değil (aria-label belirsiz: {aria_label[:50]})")
-
-            except Exception as e:
-                print(f"[DEBUG] H&M size element işlenirken hata: {e}")
-                continue
-
-        if in_stock:
-            print(f"[DEBUG] ✅ H&M toplam {len(in_stock)} beden stokta: {in_stock}")
-        else:
-            print(f"[DEBUG] H&M istenen bedenler stokta değil: {list(wanted)}")
-
-        return in_stock
-
     except Exception as e:
         print(f"[DEBUG] check_stock_hm genel hatası: {e}")
         import traceback
